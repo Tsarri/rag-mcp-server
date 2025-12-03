@@ -123,6 +123,10 @@ Edit your Claude Desktop config file (`~/Library/Application Support/Claude/clau
 
 ## 🛠️ Usage
 
+The system can be used in two ways:
+
+### 1. MCP Server (Claude Desktop Integration)
+
 Once configured, the agents are available through Claude Desktop with the following tools:
 
 ### Deadline Agent Tools
@@ -140,14 +144,66 @@ Once configured, the agents are available through Claude Desktop with the follow
 - `extract_insights` - Business intelligence extraction
 - `trend_analysis` - Cross-document trend analysis
 
+### 2. REST API Server (Frontend Integration)
+
+The system also provides a FastAPI REST API for frontend applications:
+
+```bash
+# Run REST API server (for frontend)
+python src/api_server.py
+```
+
+The API server runs on `http://localhost:8000` with interactive documentation at `http://localhost:8000/docs`.
+
+**Key Features:**
+- **Client Management** - Create and manage client records
+- **Document Upload** - Upload documents with automatic processing
+- **Data Retrieval** - Query documents, deadlines, and analyses per client
+- **CORS Enabled** - Ready for frontend integration
+
+**API Endpoints:**
+
+*Client Management:*
+- `POST /api/clients` - Create new client
+- `GET /api/clients` - List all clients
+- `GET /api/clients/{client_id}` - Get client details
+- `PUT /api/clients/{client_id}` - Update client
+- `DELETE /api/clients/{client_id}` - Delete client (soft delete)
+
+*Document Operations:*
+- `POST /api/clients/{client_id}/documents` - Upload and process document
+- `GET /api/clients/{client_id}/documents` - List client's documents
+- `GET /api/clients/{client_id}/documents/stats` - Document statistics
+
+*Deadline Management:*
+- `GET /api/clients/{client_id}/deadlines` - Get client's deadlines
+- `GET /api/clients/{client_id}/deadlines/stats` - Deadline statistics
+
+*Strategic Analysis:*
+- `GET /api/clients/{client_id}/analysis` - Get strategic analyses
+
+**Running Both Servers:**
+```bash
+# Run MCP server for Claude Desktop (existing functionality)
+python src/server.py
+
+# Run REST API server for frontend (new functionality)
+python src/api_server.py
+```
+
+Both servers can run independently and use the same database.
+
 ## 📊 Database Schema
 
-The system uses 5 main tables:
-- `documents` - Document storage and metadata
-- `document_embeddings` - Vector embeddings for semantic search
+The system uses the following main tables:
+- `clients` - Client information and management
+- `documents` - Document metadata and classification
+- `deadline_extractions` - Deadline extraction operations
 - `deadlines` - Extracted deadline tracking
-- `document_classifications` - Document categorization
-- `strategic_analysis` - Strategic insights and analytics
+- `analyses` - Strategic insights and analytics
+
+**Client Isolation:**
+All documents, deadlines, and analyses are associated with specific clients via `client_id`, enabling proper data isolation and multi-tenant support.
 
 See `database/schema.sql` for complete schema details.
 

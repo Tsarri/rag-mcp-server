@@ -45,7 +45,8 @@ class DocumentAgent:
         document_id: str,
         filename: str,
         extracted_text: str,
-        metadata: dict = None
+        metadata: dict = None,
+        client_id: str = None
     ) -> Dict:
         """
         Classify a document and extract structured metadata.
@@ -61,6 +62,7 @@ class DocumentAgent:
             filename: Original filename
             extracted_text: Full text content of the document
             metadata: Optional additional metadata
+            client_id: Optional client UUID to associate document with
             
         Returns:
             Dict with:
@@ -165,7 +167,8 @@ Rules:
                 "summary": classification.get("summary", ""),
                 "confidence": classification.get("confidence", 0.0),
                 "original_metadata": metadata or {},
-                "text_preview": text_preview
+                "text_preview": text_preview,
+                "client_id": client_id
             }
             
             # Store in Supabase (upsert to handle duplicates)
@@ -212,7 +215,8 @@ Rules:
         query: str = None,
         doc_type: str = None,
         matter_id: str = None,
-        limit: int = 50
+        limit: int = 50,
+        client_id: str = None
     ) -> List[Dict]:
         """
         Search documents with optional filters.
@@ -222,6 +226,7 @@ Rules:
             doc_type: Filter by document type
             matter_id: Filter by matter ID
             limit: Maximum number of results
+            client_id: Optional client UUID to filter by
             
         Returns:
             List of matching document records
@@ -236,6 +241,9 @@ Rules:
             
             if matter_id:
                 db_query = db_query.eq('matter_id', matter_id)
+            
+            if client_id:
+                db_query = db_query.eq('client_id', client_id)
             
             if query:
                 # Search in filename, summary, or tags
@@ -260,16 +268,24 @@ Rules:
             print(f"Error searching documents: {e}")
             raise
     
-    async def get_document_stats(self) -> Dict:
+    async def get_document_stats(self, client_id: str = None) -> Dict:
         """
         Get statistics about classified documents.
+        
+        Args:
+            client_id: Optional client UUID to filter by
         
         Returns:
             Dict with counts by document type and total
         """
         try:
             # Get all documents
-            all_docs = self.supabase.table('documents').select('doc_type').execute()
+            query = self.supabase.table('documents').select('doc_type')
+            
+            if client_id:
+                query = query.eq('client_id', client_id)
+            
+            all_docs = query.execute()
             
             # Count by type
             stats = {
