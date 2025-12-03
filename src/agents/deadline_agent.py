@@ -103,7 +103,7 @@ class DeadlineAgent:
         else:
             return "low"
     
-    async def extract_deadlines(self, text: str, source_id: str = None) -> Dict:
+    async def extract_deadlines(self, text: str, source_id: str = None, client_id: str = None) -> Dict:
         """
         Extract all deadlines from text using Claude AI.
         
@@ -117,6 +117,7 @@ class DeadlineAgent:
         Args:
             text: Text to analyze (can be email, document, message, etc.)
             source_id: Optional identifier for tracking (e.g., "document:report.pdf")
+            client_id: Optional client UUID to associate deadlines with a client
             
         Returns:
             Dict with:
@@ -201,7 +202,8 @@ Examples:
                 "source_id": source_id or f"manual-{int(datetime.now().timestamp())}",
                 "text": text[:2000],  # Store first 2000 characters
                 "extracted_count": len(deadlines_data),
-                "extraction_timestamp": datetime.now().isoformat()
+                "extraction_timestamp": datetime.now().isoformat(),
+                "client_id": client_id
             }
             
             extraction_response = self.supabase.table('deadline_extractions').insert(extraction_record).execute()
@@ -228,7 +230,8 @@ Examples:
                         "description": deadline['description'],
                         "working_days_remaining": working_days,
                         "risk_level": risk_level,
-                        "source_id": source_id
+                        "source_id": source_id,
+                        "client_id": client_id
                     }
                     
                     # Insert into database
@@ -266,12 +269,13 @@ Examples:
             print(f"  ✗ Error in extract_deadlines: {e}")
             raise
     
-    async def get_deadlines_by_risk(self, risk_level: str = None) -> List[Dict]:
+    async def get_deadlines_by_risk(self, risk_level: str = None, client_id: str = None) -> List[Dict]:
         """
-        Retrieve stored deadlines, optionally filtered by risk level.
+        Retrieve stored deadlines, optionally filtered by risk level and client.
         
         Args:
             risk_level: One of 'overdue', 'critical', 'high', 'medium', 'low', or None for all
+            client_id: Optional client UUID to filter by
             
         Returns:
             List of deadline records from database
@@ -281,6 +285,9 @@ Examples:
             
             if risk_level:
                 query = query.eq('risk_level', risk_level.lower())
+            
+            if client_id:
+                query = query.eq('client_id', client_id)
             
             # Order by date (soonest first)
             query = query.order('date', desc=False)
@@ -292,12 +299,13 @@ Examples:
             print(f"Error fetching deadlines: {e}")
             raise
     
-    async def get_upcoming_deadlines(self, days: int = 7) -> List[Dict]:
+    async def get_upcoming_deadlines(self, days: int = 7, client_id: str = None) -> List[Dict]:
         """
         Get deadlines occurring within the next N days.
         
         Args:
             days: Number of days to look ahead
+            client_id: Optional client UUID to filter by
             
         Returns:
             List of upcoming deadline records
@@ -306,29 +314,41 @@ Examples:
             today = datetime.now().date().isoformat()
             future_date = (datetime.now() + timedelta(days=days)).date().isoformat()
             
-            response = self.supabase.table('deadlines')\
+            query = self.supabase.table('deadlines')\
                 .select('*')\
                 .gte('date', today)\
-                .lte('date', future_date)\
-                .order('date', desc=False)\
-                .execute()
+                .lte('date', future_date)
             
+            if client_id:
+                query = query.eq('client_id', client_id)
+            
+            query = query.order('date', desc=False)
+            
+            response = query.execute()
             return response.data
         
         except Exception as e:
             print(f"Error fetching upcoming deadlines: {e}")
             raise
     
-    async def get_stats(self) -> Dict:
+    async def get_stats(self, client_id: str = None) -> Dict:
         """
         Get statistics about stored deadlines.
+        
+        Args:
+            client_id: Optional client UUID to filter by
         
         Returns:
             Dict with counts by risk level and total
         """
         try:
             # Get all deadlines
-            all_deadlines = self.supabase.table('deadlines').select('risk_level').execute()
+            query = self.supabase.table('deadlines').select('risk_level')
+            
+            if client_id:
+                query = query.eq('client_id', client_id)
+            
+            all_deadlines = query.execute()
             
             # Count by risk level
             stats = {

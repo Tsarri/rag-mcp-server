@@ -40,7 +40,7 @@ class SmartContextAgent:
         
         print("✓ SmartContext Agent ready")
     
-    async def analyze_deadline_risk(self, firm_id: str, deadline_data: Dict) -> Dict:
+    async def analyze_deadline_risk(self, firm_id: str, deadline_data: Dict, client_id: str = None) -> Dict:
         """
         Analyze deadline risk based on deadline statistics.
         
@@ -52,6 +52,7 @@ class SmartContextAgent:
                 - deadlines_next_7_days: Count in next week
                 - critical_deadlines: Count of critical priority
                 - high_deadlines: Count of high priority
+            client_id: Optional client UUID to associate analysis with
                 
         Returns:
             Strategic analysis with insights and recommendations
@@ -59,10 +60,11 @@ class SmartContextAgent:
         return await self._perform_analysis(
             firm_id=firm_id,
             analysis_type="deadline_risk",
-            data=deadline_data
+            data=deadline_data,
+            client_id=client_id
         )
     
-    async def analyze_caseload_health(self, firm_id: str, caseload_data: Dict) -> Dict:
+    async def analyze_caseload_health(self, firm_id: str, caseload_data: Dict, client_id: str = None) -> Dict:
         """
         Analyze workload distribution and capacity.
         
@@ -73,6 +75,7 @@ class SmartContextAgent:
                 - active_attorneys: Number of attorneys
                 - avg_case_duration_days: Average duration
                 - cases_by_status: Dict of status counts
+            client_id: Optional client UUID to associate analysis with
                 
         Returns:
             Strategic analysis with capacity insights
@@ -80,7 +83,8 @@ class SmartContextAgent:
         return await self._perform_analysis(
             firm_id=firm_id,
             analysis_type="caseload_health",
-            data=caseload_data
+            data=caseload_data,
+            client_id=client_id
         )
     
     async def analyze_profitability_trends(self, firm_id: str, financial_data: Dict) -> Dict:
@@ -104,7 +108,7 @@ class SmartContextAgent:
             data=financial_data
         )
     
-    async def _perform_analysis(self, firm_id: str, analysis_type: str, data: Dict) -> Dict:
+    async def _perform_analysis(self, firm_id: str, analysis_type: str, data: Dict, client_id: str = None) -> Dict:
         """
         Core analysis function that sends data to Claude for strategic insights.
         
@@ -112,6 +116,7 @@ class SmartContextAgent:
             firm_id: Identifier for the firm/user
             analysis_type: Type of analysis (deadline_risk, caseload_health, profitability_trends)
             data: Input data for analysis
+            client_id: Optional client UUID to associate analysis with
             
         Returns:
             Dict with analysis results
@@ -174,7 +179,8 @@ class SmartContextAgent:
                 "metrics": analysis_result.get("metrics", {}),
                 "summary": analysis_result.get("summary", ""),
                 "risk_level": analysis_result.get("risk_level", "unknown"),
-                "confidence": analysis_result.get("confidence", 0.0)
+                "confidence": analysis_result.get("confidence", 0.0),
+                "client_id": client_id
             }
             
             result = self.supabase.table('analyses').insert(db_record).execute()
@@ -306,7 +312,7 @@ Focus on:
 
 Return ONLY the JSON, no other text."""
 
-    async def get_recent_analyses(self, firm_id: str, analysis_type: str = None, limit: int = 10) -> List[Dict]:
+    async def get_recent_analyses(self, firm_id: str, analysis_type: str = None, limit: int = 10, client_id: str = None) -> List[Dict]:
         """
         Get recent analyses for a firm.
         
@@ -314,6 +320,7 @@ Return ONLY the JSON, no other text."""
             firm_id: Identifier for the firm/user
             analysis_type: Optional filter by analysis type
             limit: Maximum number of results
+            client_id: Optional client UUID to filter by
             
         Returns:
             List of analysis records
@@ -323,6 +330,9 @@ Return ONLY the JSON, no other text."""
             
             if analysis_type:
                 query = query.eq('analysis_type', analysis_type)
+            
+            if client_id:
+                query = query.eq('client_id', client_id)
             
             query = query.order('created_at', desc=True).limit(limit)
             
