@@ -60,7 +60,7 @@ class VectorStore:
             batch = documents_to_insert[i:i + batch_size]
             
             try:
-                response = self.client.table('documents').insert(batch).execute()
+                response = self.client.table('vector_documents').insert(batch).execute()
                 total_inserted += len(batch)
                 print(f"  Inserted batch: {total_inserted}/{len(documents_to_insert)}")
             except Exception as e:
@@ -116,7 +116,7 @@ class VectorStore:
     async def get_document_count(self) -> int:
         """Get total number of documents in the database"""
         try:
-            response = self.client.table('documents').select('id', count='exact').execute()
+            response = self.client.table('vector_documents').select('id', count='exact').execute()
             return response.count
         except Exception as e:
             print(f"Error getting document count: {e}")
@@ -125,7 +125,7 @@ class VectorStore:
     async def clear_all_documents(self) -> int:
         """Delete all documents from the database (use with caution!)"""
         try:
-            response = self.client.table('documents').delete().neq('id', 0).execute()
+            response = self.client.table('vector_documents').delete().neq('id', 0).execute()
             deleted = len(response.data) if response.data else 0
             print(f"✓ Cleared {deleted} documents from database")
             return deleted
