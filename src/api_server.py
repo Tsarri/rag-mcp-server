@@ -432,9 +432,10 @@ async def get_urgent_deadlines(limit: int = 10):
         
         # Build query with proper risk level sorting
         # Supabase doesn't support CASE in ORDER BY, so we'll fetch and sort in Python
+        # Fetch 3x limit to ensure we have enough after sorting by risk level
         query = supabase.table('deadlines')\
             .select('*, clients(name, email)')\
-            .limit(limit * 10)  # Fetch more to ensure we have enough after sorting
+            .limit(max(limit * 3, 50))  # At least 50 for small limit values
         
         response = query.execute()
         deadlines = response.data
@@ -459,7 +460,11 @@ async def get_urgent_deadlines(limit: int = 10):
         # Transform to include client info
         result = []
         for dl in sorted_deadlines:
-            client_info = dl.get('clients', {}) if isinstance(dl.get('clients'), dict) else {}
+            # Extract client info safely
+            client_info = dl.get('clients') or {}
+            if not isinstance(client_info, dict):
+                client_info = {}
+            
             result.append({
                 'id': dl['id'],
                 'date': dl['date'],
