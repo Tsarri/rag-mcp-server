@@ -373,6 +373,84 @@ async def get_client_documents(
         logger.error(f"Error fetching documents: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.delete("/api/clients/{client_id}/documents/{document_id}")
+async def delete_client_document(client_id: str, document_id: str):
+    """
+    Delete a document completely:
+    - Remove from documents table
+    - Remove associated deadlines (linked via source_id pattern)
+    - Delete actual file from local storage
+    """
+    try:
+        logger.info(f"Deleting document {document_id} for client {client_id}")
+        
+        # Verify client exists
+        client = await client_manager.get_client(client_id)
+        if not client:
+            raise HTTPException(status_code=404, detail="Client not found")
+        
+        # 1. Get document info (to get filename for file deletion)
+        doc_response = supabase.table('documents') \
+            .select('*') \
+            .eq('document_id', document_id) \
+            .eq('client_id', client_id) \
+            .execute()
+        
+        if not doc_response.data or len(doc_response.data) == 0:
+            raise HTTPException(status_code=404, detail="Document not found")
+        
+        document = doc_response.data[0]
+        filename = document.get('filename')
+        
+        # 2. Delete associated deadlines (using source_id pattern)
+        # Deadlines are linked via source_id = "document:{filename}"
+        source_id_pattern = f"document:{filename}"
+        try:
+            supabase.table('deadlines') \
+                .delete() \
+                .eq('source_id', source_id_pattern) \
+                .eq('client_id', client_id) \
+                .execute()
+            logger.info(f"Deleted deadlines for document: {filename}")
+        except Exception as deadline_error:
+            logger.warning(f"Error deleting deadlines: {deadline_error}")
+        
+        # 3. Delete from documents table
+        delete_response = supabase.table('documents') \
+            .delete() \
+            .eq('document_id', document_id) \
+            .eq('client_id', client_id) \
+            .execute()
+        
+        logger.info(f"Deleted document record from database: {document_id}")
+        
+        # 4. Delete actual file from local storage
+        if filename:
+            try:
+                client_dir = get_client_document_dir(client_id)
+                file_path = client_dir / filename
+                
+                if file_path.exists():
+                    file_path.unlink()
+                    logger.info(f"Deleted file from storage: {file_path}")
+                else:
+                    logger.warning(f"File not found in storage: {file_path}")
+            except Exception as storage_error:
+                # Log but don't fail if file doesn't exist in storage
+                logger.warning(f"Could not delete file from storage: {storage_error}")
+        
+        return {
+            "success": True,
+            "message": "Document deleted successfully",
+            "document_id": document_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting document: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete document: {str(e)}")
+
 @app.get("/api/clients/{client_id}/deadlines")
 async def get_client_deadlines(
     client_id: str,
