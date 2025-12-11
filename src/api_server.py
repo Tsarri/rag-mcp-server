@@ -7,7 +7,7 @@ import os
 import logging
 from pathlib import Path
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 import shutil
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
@@ -465,7 +465,7 @@ async def mark_deadline_complete(client_id: str, deadline_id: str):
         update_response = supabase.table('deadlines')\
             .update({
                 'completed': True,
-                'completed_at': datetime.now().isoformat()
+                'completed_at': datetime.now(timezone.utc).isoformat()
             })\
             .eq('id', deadline_id)\
             .execute()
@@ -543,6 +543,7 @@ async def get_urgent_deadlines(limit: int = 10):
         # Fetch 3x limit to ensure we have enough after sorting by risk level
         query = supabase.table('deadlines')\
             .select('*, clients(name, email)')\
+            .eq('completed', False)\
             .limit(max(limit * 3, 50))  # At least 50 for small limit values
         
         response = query.execute()
