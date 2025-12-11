@@ -53,6 +53,8 @@ CREATE TABLE IF NOT EXISTS deadlines (
     risk_level TEXT CHECK (risk_level IN ('overdue', 'critical', 'high', 'medium', 'low')),
     source_id TEXT,
     client_id UUID REFERENCES clients(id) ON DELETE CASCADE,
+    completed BOOLEAN DEFAULT FALSE,
+    completed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -82,6 +84,7 @@ CREATE INDEX IF NOT EXISTS idx_deadlines_client_id ON deadlines(client_id);
 CREATE INDEX IF NOT EXISTS idx_deadlines_date ON deadlines(date);
 CREATE INDEX IF NOT EXISTS idx_deadlines_risk_level ON deadlines(risk_level);
 CREATE INDEX IF NOT EXISTS idx_deadlines_extraction_id ON deadlines(extraction_id);
+CREATE INDEX IF NOT EXISTS idx_deadlines_completed ON deadlines(completed);
 
 CREATE INDEX IF NOT EXISTS idx_deadline_extractions_client_id ON deadline_extractions(client_id);
 
