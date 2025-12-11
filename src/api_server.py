@@ -403,15 +403,16 @@ async def delete_client_document(client_id: str, document_id: str):
         filename = document.get('filename')
         
         # 2. Delete associated deadlines (using source_id pattern)
-        # Deadlines are linked via source_id = "document:{filename}"
-        source_id_pattern = f"document:{filename}"
+        # Deadlines are linked via source_id = "document:{document_id}"
+        # where document_id is the same as filename in the current implementation
+        source_id_pattern = f"document:{document_id}"
         try:
             supabase.table('deadlines') \
                 .delete() \
                 .eq('source_id', source_id_pattern) \
                 .eq('client_id', client_id) \
                 .execute()
-            logger.info(f"Deleted deadlines for document: {filename}")
+            logger.info(f"Deleted deadlines for document: {document_id}")
         except Exception as deadline_error:
             logger.warning(f"Error deleting deadlines: {deadline_error}")
         

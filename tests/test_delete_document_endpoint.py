@@ -82,19 +82,18 @@ def test_endpoint_logic():
         
         func_content = content[func_start:next_func]
         
-        # Check deletion order (should delete deadlines before documents)
-        deadlines_pos = func_content.find("table('deadlines')")
-        documents_pos = func_content.find(".delete()")
-        
-        assert deadlines_pos > 0
+        # Check that deadlines table is mentioned
+        assert "table('deadlines')" in func_content
         print("✓ Deadlines deletion included")
         
-        assert documents_pos > 0
-        print("✓ Documents deletion included")
+        # Check that documents table is mentioned
+        assert "table('documents')" in func_content
+        print("✓ Documents table query included")
         
-        # Check for source_id pattern matching
+        # Check for source_id pattern matching using document_id
         assert 'source_id' in func_content
-        print("✓ Source ID pattern matching for deadlines")
+        assert f'document:{{document_id}}' in func_content or 'document:{document_id}' in func_content
+        print("✓ Source ID pattern matching uses document_id (not filename)")
         
         # Check for file deletion
         assert 'unlink()' in func_content
@@ -104,7 +103,8 @@ def test_endpoint_logic():
         assert 'client_manager.get_client' in func_content
         print("✓ Client verification included")
         
-        # Check for document verification
+        # Check for document verification with both document_id and client_id
+        assert '.eq(\'document_id\', document_id)' in func_content
         assert '.eq(\'client_id\', client_id)' in func_content
         print("✓ Client ownership verification included")
         
@@ -113,6 +113,13 @@ def test_endpoint_logic():
         assert '"message"' in func_content
         assert '"document_id"' in func_content
         print("✓ Proper return value structure")
+        
+        # Check deletion happens in both deadlines and documents tables
+        deadlines_delete = func_content.find("table('deadlines')")
+        documents_delete_query = func_content.find("table('documents')", deadlines_delete + 1)
+        assert deadlines_delete > 0
+        assert documents_delete_query > deadlines_delete
+        print("✓ Deadlines are queried/deleted before final document deletion")
         
         return True
     except AssertionError as e:
