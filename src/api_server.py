@@ -14,6 +14,7 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, validator
 from dotenv import load_dotenv
+from supabase import create_client, Client
 
 from database.client_manager import ClientManager
 from agents.deadline_agent import DeadlineAgent
@@ -62,6 +63,13 @@ smartcontext_agent = SmartContextAgent()
 document_loader = DocumentLoader()
 vector_store = VectorStore()
 
+# Initialize Supabase client for direct DB access
+supabase_url = os.getenv('SUPABASE_URL')
+supabase_key = os.getenv('SUPABASE_KEY')
+if not supabase_url or not supabase_key:
+    raise ValueError("Missing Supabase credentials (SUPABASE_URL, SUPABASE_KEY)")
+supabase: Client = create_client(supabase_url, supabase_key)
+
 # Pydantic models for request/response
 class ClientCreate(BaseModel):
     name: str
@@ -102,6 +110,20 @@ class DocumentStats(BaseModel):
     memo: int
     legal: int
     other: int
+
+class UrgentDeadline(BaseModel):
+    id: str
+    date: str
+    description: str
+    working_days_remaining: int
+    risk_level: str
+    client_id: Optional[str]
+    client_name: Optional[str]
+    client_email: Optional[str]
+
+class UrgentDeadlinesResponse(BaseModel):
+    count: int
+    deadlines: List[UrgentDeadline]
 
 # File upload validation
 ALLOWED_EXTENSIONS = {'.pdf', '.docx', '.txt', '.eml'}
@@ -400,6 +422,62 @@ async def get_client_deadline_stats(client_id: str):
         raise
     except Exception as e:
         logger.error(f"Error fetching deadline stats: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/urgent-deadlines", response_model=UrgentDeadlinesResponse)
+async def get_urgent_deadlines(limit: int = 10):
+    """Get the most urgent deadlines across all clients"""
+    try:
+        logger.info(f"Fetching top {limit} urgent deadlines across all clients")
+        
+        # Build query with proper risk level sorting
+        # Supabase doesn't support CASE in ORDER BY, so we'll fetch and sort in Python
+        query = supabase.table('deadlines')\
+            .select('*, clients(name, email)')\
+            .limit(limit * 10)  # Fetch more to ensure we have enough after sorting
+        
+        response = query.execute()
+        deadlines = response.data
+        
+        # Sort in Python to ensure correct risk level priority
+        risk_priority = {
+            'overdue': 1,
+            'critical': 2,
+            'high': 3,
+            'medium': 4,
+            'low': 5
+        }
+        
+        sorted_deadlines = sorted(
+            deadlines,
+            key=lambda d: (
+                risk_priority.get(d.get('risk_level', ''), 999),
+                d.get('date', '')
+            )
+        )[:limit]
+        
+        # Transform to include client info
+        result = []
+        for dl in sorted_deadlines:
+            client_info = dl.get('clients', {}) if isinstance(dl.get('clients'), dict) else {}
+            result.append({
+                'id': dl['id'],
+                'date': dl['date'],
+                'description': dl.get('description', ''),
+                'working_days_remaining': dl.get('working_days_remaining', 0),
+                'risk_level': dl.get('risk_level', 'low'),
+                'client_id': dl.get('client_id'),
+                'client_name': client_info.get('name'),
+                'client_email': client_info.get('email')
+            })
+        
+        return {
+            'count': len(result),
+            'deadlines': result
+        }
+        
+    except Exception as e:
+        logger.error(f"Error fetching urgent deadlines: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/clients/{client_id}/documents/classified")
