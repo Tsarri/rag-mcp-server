@@ -376,21 +376,37 @@ async def get_client_documents(
 @app.get("/api/clients/{client_id}/deadlines")
 async def get_client_deadlines(
     client_id: str,
-    risk_level: Optional[str] = None
+    risk_level: Optional[str] = None,
+    completed: Optional[str] = "false"
 ):
     """Get deadlines for a client"""
     try:
-        logger.info(f"Fetching deadlines for client: {client_id}")
+        logger.info(f"Fetching deadlines for client: {client_id}, completed filter: {completed}")
         
         # Verify client exists
         client = await client_manager.get_client(client_id)
         if not client:
             raise HTTPException(status_code=404, detail="Client not found")
         
-        deadlines = await deadline_agent.get_deadlines_by_risk(
-            risk_level=risk_level,
-            client_id=client_id
-        )
+        # Build query
+        query = supabase.table('deadlines').select('*').eq('client_id', client_id)
+        
+        # Apply completed filter
+        if completed == "true":
+            query = query.eq('completed', True)
+        elif completed == "false":
+            query = query.eq('completed', False)
+        # If "all", don't filter by completed status
+        
+        # Apply risk level filter if provided
+        if risk_level:
+            query = query.eq('risk_level', risk_level)
+        
+        # Order by date
+        query = query.order('date', desc=False)
+        
+        response = query.execute()
+        deadlines = response.data
         
         return {
             "client_id": client_id,
@@ -422,6 +438,98 @@ async def get_client_deadline_stats(client_id: str):
         raise
     except Exception as e:
         logger.error(f"Error fetching deadline stats: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.patch("/api/clients/{client_id}/deadlines/{deadline_id}/complete")
+async def mark_deadline_complete(client_id: str, deadline_id: str):
+    """Mark a deadline as completed"""
+    try:
+        logger.info(f"Marking deadline {deadline_id} as completed for client {client_id}")
+        
+        # Verify client exists
+        client = await client_manager.get_client(client_id)
+        if not client:
+            raise HTTPException(status_code=404, detail="Client not found")
+        
+        # Verify deadline exists and belongs to client
+        deadline_check = supabase.table('deadlines')\
+            .select('*')\
+            .eq('id', deadline_id)\
+            .eq('client_id', client_id)\
+            .execute()
+        
+        if not deadline_check.data:
+            raise HTTPException(status_code=404, detail="Deadline not found")
+        
+        # Update deadline to completed
+        update_response = supabase.table('deadlines')\
+            .update({
+                'completed': True,
+                'completed_at': datetime.now().isoformat()
+            })\
+            .eq('id', deadline_id)\
+            .execute()
+        
+        if not update_response.data:
+            raise HTTPException(status_code=500, detail="Failed to mark deadline as completed")
+        
+        return {
+            "success": True,
+            "deadline_id": deadline_id,
+            "completed": True,
+            "message": "Deadline marked as completed"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error marking deadline complete: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.patch("/api/clients/{client_id}/deadlines/{deadline_id}/uncomplete")
+async def mark_deadline_uncomplete(client_id: str, deadline_id: str):
+    """Restore a completed deadline back to active status"""
+    try:
+        logger.info(f"Restoring deadline {deadline_id} to active for client {client_id}")
+        
+        # Verify client exists
+        client = await client_manager.get_client(client_id)
+        if not client:
+            raise HTTPException(status_code=404, detail="Client not found")
+        
+        # Verify deadline exists and belongs to client
+        deadline_check = supabase.table('deadlines')\
+            .select('*')\
+            .eq('id', deadline_id)\
+            .eq('client_id', client_id)\
+            .execute()
+        
+        if not deadline_check.data:
+            raise HTTPException(status_code=404, detail="Deadline not found")
+        
+        # Update deadline to not completed
+        update_response = supabase.table('deadlines')\
+            .update({
+                'completed': False,
+                'completed_at': None
+            })\
+            .eq('id', deadline_id)\
+            .execute()
+        
+        if not update_response.data:
+            raise HTTPException(status_code=500, detail="Failed to restore deadline")
+        
+        return {
+            "success": True,
+            "deadline_id": deadline_id,
+            "completed": False,
+            "message": "Deadline restored to active"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error restoring deadline: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/urgent-deadlines", response_model=UrgentDeadlinesResponse)
