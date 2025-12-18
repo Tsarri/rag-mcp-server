@@ -376,6 +376,7 @@ async def upload_document(
                 'discrepancies': classification_validation['discrepancies'],
                 'missing_information': classification_validation['missing_information']
             }).execute()
+            logger.info("Stored classification validation")
         except Exception as e:
             logger.error(f"Failed to store classification validation: {str(e)}")
         
@@ -386,22 +387,31 @@ async def upload_document(
             gemini_extraction=gemini_context
         )
         
-        # Store deadline validation
+        # Store individual validation for EACH deadline with its actual ID
+        # Note: The validation is performed on all deadlines collectively, but we store
+        # the same validation result for each deadline ID. This allows the frontend to
+        # query validation by individual deadline ID (e.g., /api/validations/deadline/{deadline_id})
         try:
-            supabase.table('validations').insert({
-                'validation_type': 'deadline',
-                'entity_id': deadline_result.get('extraction_id', doc['filename']),
-                'client_id': client_id,
-                'extraction_id': extraction_id,
-                'validation_status': deadline_validation['validation_status'],
-                'confidence_score': deadline_validation['confidence_score'],
-                'feedback': deadline_validation['feedback'],
-                'verified_items': deadline_validation['verified_items'],
-                'discrepancies': deadline_validation['discrepancies'],
-                'missing_information': deadline_validation['missing_information']
-            }).execute()
+            for deadline in deadline_result['deadlines']:
+                deadline_id = deadline.get('id')
+                if deadline_id:
+                    supabase.table('validations').insert({
+                        'validation_type': 'deadline',
+                        'entity_id': deadline_id,  # Use actual deadline ID
+                        'client_id': client_id,
+                        'extraction_id': extraction_id,
+                        'validation_status': deadline_validation['validation_status'],
+                        'confidence_score': deadline_validation['confidence_score'],
+                        'feedback': deadline_validation['feedback'],
+                        'verified_items': deadline_validation['verified_items'],
+                        'discrepancies': deadline_validation['discrepancies'],
+                        'missing_information': deadline_validation['missing_information']
+                    }).execute()
+                    logger.info(f"Stored deadline validation for: {deadline_id}")
+                else:
+                    logger.warning(f"Deadline missing ID, cannot store validation: {deadline}")
         except Exception as e:
-            logger.error(f"Failed to store deadline validation: {str(e)}")
+            logger.error(f"Failed to store deadline validations: {str(e)}")
         
         logger.info(f"Document processed successfully: {file.filename}")
         
@@ -861,9 +871,8 @@ async def get_validation(validation_type: str, entity_id: str):
     try:
         logger.info(f"Fetching {validation_type} validation for entity: {entity_id}")
         
-        # Validate validation_type
-        if validation_type not in ['classification', 'deadline', 'other']:
-            raise HTTPException(status_code=400, detail="Invalid validation type. Must be 'classification', 'deadline', or 'other'")
+        # Remove strict validation type check - let database filter
+        # This allows for future validation types without code changes
         
         # Query validations table for the latest validation
         response = supabase.table('validations')\
@@ -874,8 +883,24 @@ async def get_validation(validation_type: str, entity_id: str):
             .limit(1)\
             .execute()
         
+        logger.info(f"Validation query returned {len(response.data)} results")
+        
         if not response.data:
-            raise HTTPException(status_code=404, detail="Validation not found")
+            # Return default pending validation instead of 404 error
+            # This prevents NaN errors in the frontend
+            logger.info(f"No {validation_type} validation found for entity: {entity_id}, returning pending status")
+            return {
+                "success": True,
+                "validation": {
+                    "validation_status": "pending",
+                    "confidence_score": 0.0,
+                    "feedback": "Validation not yet available or processing",
+                    "verified_items": [],
+                    "discrepancies": [],
+                    "missing_information": [],
+                    "created_at": None
+                }
+            }
         
         validation = response.data[0]
         
