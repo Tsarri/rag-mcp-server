@@ -46,7 +46,8 @@ class DocumentAgent:
         filename: str,
         extracted_text: str,
         metadata: dict = None,
-        client_id: str = None
+        client_id: str = None,
+        gemini_context: Dict = None
     ) -> Dict:
         """
         Classify a document and extract structured metadata.
@@ -80,9 +81,30 @@ class DocumentAgent:
             # Create text preview (first 500 chars for storage)
             text_preview = extracted_text[:500] if len(extracted_text) > 500 else extracted_text
             
+            # Build Gemini context hint if available
+            gemini_hint = ""
+            if gemini_context:
+                gemini_hint = "\n\nANOTHER AI MODEL'S ANALYSIS:\n"
+                
+                if gemini_context.get('document_metadata'):
+                    doc_meta = gemini_context['document_metadata']
+                    if doc_meta.get('suggested_type'):
+                        gemini_hint += f"- Suggested type: {doc_meta['suggested_type']}\n"
+                    if doc_meta.get('topic'):
+                        gemini_hint += f"- Topic: {doc_meta['topic']}\n"
+                
+                if gemini_context.get('entities'):
+                    entities = gemini_context['entities']
+                    if entities.get('people'):
+                        gemini_hint += f"- People identified: {', '.join(entities['people'][:5])}\n"
+                    if entities.get('organizations'):
+                        gemini_hint += f"- Organizations: {', '.join(entities['organizations'][:5])}\n"
+                
+                gemini_hint += "\nUse this as reference, but make your own classification based on the full text.\n"
+            
             # Construct the prompt for Claude
             prompt = f"""You are analyzing a document to classify it and extract structured metadata.
-
+{gemini_hint}
 Document filename: {filename}
 Document text:
 {extracted_text[:5000]}  

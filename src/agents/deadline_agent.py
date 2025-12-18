@@ -103,7 +103,7 @@ class DeadlineAgent:
         else:
             return "low"
     
-    async def extract_deadlines(self, text: str, source_id: str = None, client_id: str = None) -> Dict:
+    async def extract_deadlines(self, text: str, source_id: str = None, client_id: str = None, gemini_context: Dict = None) -> Dict:
         """
         Extract all deadlines from text using Claude AI.
         
@@ -129,8 +129,21 @@ class DeadlineAgent:
             # Construct the prompt for Claude with today's date
             today = datetime.now().strftime('%Y-%m-%d')
             
+            # Build Gemini context hint if available
+            gemini_hint = ""
+            if gemini_context and gemini_context.get('dates_and_deadlines'):
+                dates = gemini_context['dates_and_deadlines']
+                if dates:
+                    gemini_hint = "\nNOTE: Another AI model identified these dates in the document:\n"
+                    for date_item in dates[:5]:  # Limit to 5 items
+                        date_str = date_item.get('date', '')
+                        desc = date_item.get('description', '')
+                        importance = date_item.get('importance', '')
+                        gemini_hint += f"- {date_str}: {desc} ({importance} importance)\n"
+                    gemini_hint += "\nUse these as hints, but verify against the full text.\n\n"
+            
             prompt = f"""You are analyzing a legal notification in Spanish. Today's date is {today}.
-
+{gemini_hint}
 Extract ALL deadlines, due dates, and time-sensitive legal obligations from the text below.
 
 For each deadline:
