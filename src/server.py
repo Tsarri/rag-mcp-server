@@ -8,6 +8,8 @@ from typing import List
 from agents.deadline_agent import DeadlineAgent
 from agents.document_agent import DocumentAgent
 from agents.smartcontext_agent import SmartContextAgent
+from agents.gemini_preprocessor import GeminiPreprocessor
+from agents.gemini_validator import GeminiValidator
 import os
 
 # Load environment variables from .env file
@@ -391,8 +393,22 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             response_text += f"- Average chunk size: {len(doc['text']) // count:,} characters\n"
             response_text += f"- Document type: {doc['type']}\n\n"
             
-            # Classify document
+            # Step 1: Gemini Preprocessing (if enabled)
+            gemini_context = None
+            gemini_preprocessor = GeminiPreprocessor()
+            try:
+                gemini_extraction = await gemini_preprocessor.extract_structured_data(
+                    text=doc['text'],
+                    filename=doc['filename']
+                )
+                if gemini_extraction['success']:
+                    gemini_context = gemini_extraction['data']
+            except Exception as e:
+                print(f"⚠️ Gemini preprocessing skipped: {str(e)}")
+            
+            # Step 2: Classify document with Gemini context
             classify_flag = arguments.get("classify_document", True)
+            classification_validation = None
             if classify_flag:
                 print(f"→ Classifying document...")
                 try:
@@ -400,10 +416,22 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                         document_id=doc['filename'],
                         filename=doc['filename'],
                         extracted_text=doc['text'],
-                        metadata={'path': doc['path'], 'type': doc['type']}
+                        metadata={'path': doc['path'], 'type': doc['type']},
+                        gemini_context=gemini_context
                     )
                     
                     classification = classification_result['classification']
+                    
+                    # Step 3: Validate classification with Gemini
+                    try:
+                        gemini_validator = GeminiValidator()
+                        classification_validation = await gemini_validator.validate_classification(
+                            claude_output=classification,
+                            original_text=doc['text'],
+                            gemini_extraction=gemini_context
+                        )
+                    except Exception as e:
+                        print(f"⚠️ Gemini validation skipped: {str(e)}")
                     
                     response_text += f"---\n\n**📄 Document Classification:**\n\n"
                     response_text += f"- **Type:** {classification['doc_type']}\n"
@@ -434,6 +462,18 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                         
                         if entities.get('amounts'):
                             response_text += f"- Amounts: {', '.join(entities['amounts'])}\n"
+                    
+                    # Add validation results
+                    if classification_validation:
+                        status_emoji = {
+                            'verified': '✅',
+                            'discrepancy': '⚠️',
+                            'error': '❌'
+                        }.get(classification_validation['validation_status'], '❓')
+                        
+                        confidence = classification_validation['confidence_score']
+                        response_text += f"\n{status_emoji} **Gemini Validation: {classification_validation['validation_status'].upper()} ({confidence:.0%} confidence)**\n"
+                        response_text += f"└─ {classification_validation['feedback']}\n"
                 
                 except Exception as e:
                     response_text += f"\n⚠️ Could not classify document: {str(e)}\n"
@@ -441,11 +481,24 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             # Extract deadlines from the document
             if extract_deadlines_flag:
                 print(f"→ Extracting deadlines from document...")
+                deadline_validation = None
                 try:
                     deadline_result = await deadline_agent.extract_deadlines(
                         text=doc['text'],
-                        source_id=f"document:{doc['filename']}"
+                        source_id=f"document:{doc['filename']}",
+                        gemini_context=gemini_context
                     )
+                    
+                    # Validate deadlines with Gemini
+                    try:
+                        gemini_validator = GeminiValidator()
+                        deadline_validation = await gemini_validator.validate_deadlines(
+                            claude_deadlines=deadline_result['deadlines'],
+                            original_text=doc['text'],
+                            gemini_extraction=gemini_context
+                        )
+                    except Exception as e:
+                        print(f"⚠️ Gemini deadline validation skipped: {str(e)}")
                     
                     if deadline_result['count'] > 0:
                         response_text += f"---\n\n**📅 Deadlines Extracted: {deadline_result['count']}**\n\n"
@@ -461,6 +514,18 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                             
                             response_text += f"{i}. {risk_emoji} **{deadline['date']}** - {deadline['description']}\n"
                             response_text += f"   └─ {deadline['working_days_remaining']} working days · {deadline['risk_level'].upper()}\n\n"
+                        
+                        # Add deadline validation results
+                        if deadline_validation:
+                            status_emoji = {
+                                'verified': '✅',
+                                'discrepancy': '⚠️',
+                                'error': '❌'
+                            }.get(deadline_validation['validation_status'], '❓')
+                            
+                            confidence = deadline_validation['confidence_score']
+                            response_text += f"{status_emoji} **Gemini Validation: {deadline_validation['validation_status'].upper()} ({confidence:.0%} confidence)**\n"
+                            response_text += f"└─ {deadline_validation['feedback']}\n"
                     else:
                         response_text += f"---\n\n*No deadlines found in this document.*\n"
                 

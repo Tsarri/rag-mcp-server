@@ -20,6 +20,8 @@ from database.client_manager import ClientManager
 from agents.deadline_agent import DeadlineAgent
 from agents.document_agent import DocumentAgent
 from agents.smartcontext_agent import SmartContextAgent
+from agents.gemini_preprocessor import GeminiPreprocessor
+from agents.gemini_validator import GeminiValidator
 from data_sources.document_loader import DocumentLoader
 from data_sources.vector_store import VectorStore
 
@@ -60,6 +62,8 @@ client_manager = ClientManager()
 deadline_agent = DeadlineAgent()
 document_agent = DocumentAgent()
 smartcontext_agent = SmartContextAgent()
+gemini_preprocessor = GeminiPreprocessor()
+gemini_validator = GeminiValidator()
 document_loader = DocumentLoader()
 vector_store = VectorStore()
 
@@ -304,21 +308,100 @@ async def upload_document(
         chunk_count = await vector_store.add_documents(chunks, metadata)
         logger.info(f"Added {chunk_count} chunks to vector store")
         
-        # Classify document
+        # STEP 1: Gemini Preprocessing
+        gemini_extraction = await gemini_preprocessor.extract_structured_data(
+            text=doc['text'],
+            filename=doc['filename']
+        )
+        
+        # Store Gemini extraction in database
+        extraction_id = None
+        if gemini_extraction['success']:
+            try:
+                extraction_record = supabase.table('gemini_extractions').insert({
+                    'client_id': client_id,
+                    'document_id': doc['filename'],
+                    'extracted_data': gemini_extraction['data'],
+                    'model_version': 'gemini-1.5-pro'
+                }).execute()
+                
+                extraction_id = extraction_record.data[0]['id'] if extraction_record.data else None
+                logger.info(f"Stored Gemini extraction: {extraction_id}")
+            except Exception as e:
+                logger.error(f"Failed to store Gemini extraction: {str(e)}")
+        
+        # STEP 2: Claude Processing with Gemini Context
+        gemini_context = gemini_extraction['data'] if gemini_extraction['success'] else None
+        
+        # Classify document with Gemini context
         classification_result = await document_agent.classify_document(
             document_id=doc['filename'],
             filename=doc['filename'],
             extracted_text=doc['text'],
             metadata={'path': doc['path'], 'type': doc['type']},
-            client_id=client_id
+            client_id=client_id,
+            gemini_context=gemini_context
         )
         
-        # Extract deadlines
+        # Extract deadlines with Gemini context
         deadline_result = await deadline_agent.extract_deadlines(
             text=doc['text'],
             source_id=f"document:{doc['filename']}",
-            client_id=client_id
+            client_id=client_id,
+            gemini_context=gemini_context
         )
+        
+        # STEP 3: Gemini Validation
+        classification_validation = None
+        deadline_validation = None
+        
+        # Validate classification
+        classification_validation = await gemini_validator.validate_classification(
+            claude_output=classification_result['classification'],
+            original_text=doc['text'],
+            gemini_extraction=gemini_context
+        )
+        
+        # Store classification validation
+        try:
+            supabase.table('validations').insert({
+                'validation_type': 'classification',
+                'entity_id': doc['filename'],
+                'client_id': client_id,
+                'extraction_id': extraction_id,
+                'validation_status': classification_validation['validation_status'],
+                'confidence_score': classification_validation['confidence_score'],
+                'feedback': classification_validation['feedback'],
+                'verified_items': classification_validation['verified_items'],
+                'discrepancies': classification_validation['discrepancies'],
+                'missing_information': classification_validation['missing_information']
+            }).execute()
+        except Exception as e:
+            logger.error(f"Failed to store classification validation: {str(e)}")
+        
+        # Validate deadlines
+        deadline_validation = await gemini_validator.validate_deadlines(
+            claude_deadlines=deadline_result['deadlines'],
+            original_text=doc['text'],
+            gemini_extraction=gemini_context
+        )
+        
+        # Store deadline validation
+        try:
+            supabase.table('validations').insert({
+                'validation_type': 'deadline',
+                'entity_id': deadline_result.get('extraction_id', doc['filename']),
+                'client_id': client_id,
+                'extraction_id': extraction_id,
+                'validation_status': deadline_validation['validation_status'],
+                'confidence_score': deadline_validation['confidence_score'],
+                'feedback': deadline_validation['feedback'],
+                'verified_items': deadline_validation['verified_items'],
+                'discrepancies': deadline_validation['discrepancies'],
+                'missing_information': deadline_validation['missing_information']
+            }).execute()
+        except Exception as e:
+            logger.error(f"Failed to store deadline validation: {str(e)}")
         
         logger.info(f"Document processed successfully: {file.filename}")
         
@@ -329,7 +412,10 @@ async def upload_document(
             "chunks_created": chunk_count,
             "classification": classification_result['classification'],
             "deadlines_extracted": deadline_result['count'],
-            "deadlines": deadline_result['deadlines']
+            "deadlines": deadline_result['deadlines'],
+            "gemini_extraction_id": extraction_id,
+            "classification_validation": classification_validation,
+            "deadline_validation": deadline_validation
         }
         
     except HTTPException:
@@ -760,6 +846,50 @@ async def get_client_analysis(
         raise HTTPException(status_code=500, detail=str(e))
 
 # Helper function for text chunking
+@app.get("/api/validations/{validation_type}/{entity_id}")
+async def get_validation(validation_type: str, entity_id: str):
+    """
+    Get the latest validation for a specific entity.
+    
+    Args:
+        validation_type: Type of validation ('classification' or 'deadline')
+        entity_id: ID of the entity being validated (document_id, extraction_id, etc.)
+    
+    Returns:
+        Latest validation record for the specified entity
+    """
+    try:
+        logger.info(f"Fetching {validation_type} validation for entity: {entity_id}")
+        
+        # Validate validation_type
+        if validation_type not in ['classification', 'deadline', 'other']:
+            raise HTTPException(status_code=400, detail="Invalid validation type. Must be 'classification', 'deadline', or 'other'")
+        
+        # Query validations table for the latest validation
+        response = supabase.table('validations')\
+            .select('*')\
+            .eq('validation_type', validation_type)\
+            .eq('entity_id', entity_id)\
+            .order('created_at', desc=True)\
+            .limit(1)\
+            .execute()
+        
+        if not response.data:
+            raise HTTPException(status_code=404, detail="Validation not found")
+        
+        validation = response.data[0]
+        
+        return {
+            "success": True,
+            "validation": validation
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching validation: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> List[str]:
     """
     Split text into overlapping chunks for better context preservation.
