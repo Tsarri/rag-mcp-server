@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """
 Test validation endpoint to ensure it returns default pending validation instead of 404
+
+Note: These tests use string-based checks on the source code to verify structural changes.
+While this approach is simpler than setting up a full test environment with database mocks,
+it validates that the required code patterns are present in the implementation.
 """
 
 import sys

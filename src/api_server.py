@@ -388,6 +388,9 @@ async def upload_document(
         )
         
         # Store individual validation for EACH deadline with its actual ID
+        # Note: The validation is performed on all deadlines collectively, but we store
+        # the same validation result for each deadline ID. This allows the frontend to
+        # query validation by individual deadline ID (e.g., /api/validations/deadline/{deadline_id})
         try:
             for deadline in deadline_result['deadlines']:
                 deadline_id = deadline.get('id')
