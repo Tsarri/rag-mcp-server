@@ -524,6 +524,7 @@ async def delete_client_document(client_id: str, document_id: str):
                         .delete() \
                         .eq('validation_type', 'deadline') \
                         .eq('entity_id', deadline_id) \
+                        .eq('client_id', client_id) \
                         .execute()
                 logger.info(f"Deleted deadline validations for {len(deadline_ids)} deadlines")
             except Exception as validation_error:
