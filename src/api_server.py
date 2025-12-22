@@ -67,6 +67,28 @@ gemini_validator = GeminiValidator()
 document_loader = DocumentLoader()
 vector_store = VectorStore()
 
+# Gemini health check logging
+logger.info("=" * 60)
+logger.info("Service Initialization Status:")
+logger.info("=" * 60)
+
+# Check Gemini Preprocessor
+if gemini_preprocessor.model:
+    logger.info("✓ Gemini Preprocessor: READY")
+else:
+    logger.warning("⚠️  Gemini Preprocessor: NOT AVAILABLE")
+    logger.warning("   → Set GEMINI_API_KEY in environment to enable preprocessing")
+
+# Check Gemini Validator
+if gemini_validator.model:
+    logger.info("✓ Gemini Validator: READY")
+else:
+    logger.warning("⚠️  Gemini Validator: NOT AVAILABLE")
+    logger.warning("   → Set GEMINI_API_KEY in environment to enable validation")
+    logger.warning("   → All validations will return 0% confidence")
+
+logger.info("=" * 60)
+
 # Initialize Supabase client for direct DB access
 supabase_url = os.getenv('SUPABASE_URL')
 supabase_key = os.getenv('SUPABASE_KEY')
@@ -186,6 +208,45 @@ async def root():
 async def health_check():
     """Health check endpoint"""
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+
+@app.get("/health/detailed")
+async def detailed_health_check():
+    """
+    Detailed health check including service status.
+    Useful for monitoring and debugging.
+    """
+    health_status = {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "services": {
+            "api": "operational",
+            "database": "unknown",  # Could add actual DB check
+            "gemini_preprocessor": "operational" if gemini_preprocessor.model else "unavailable",
+            "gemini_validator": "operational" if gemini_validator.model else "unavailable",
+        },
+        "warnings": []
+    }
+    
+    # Add warnings for degraded services
+    if not gemini_preprocessor.model:
+        health_status["warnings"].append({
+            "service": "gemini_preprocessor",
+            "message": "Gemini Preprocessor not available - GEMINI_API_KEY not configured",
+            "impact": "Document preprocessing will not provide hints to Claude"
+        })
+    
+    if not gemini_validator.model:
+        health_status["warnings"].append({
+            "service": "gemini_validator",
+            "message": "Gemini Validator not available - GEMINI_API_KEY not configured",
+            "impact": "All validation confidence scores will be 0%"
+        })
+    
+    # Set overall status to degraded if any critical services are down
+    if not gemini_validator.model:
+        health_status["status"] = "degraded"
+    
+    return health_status
 
 # Client Management Endpoints
 
@@ -445,6 +506,23 @@ async def upload_document(
         if not client:
             raise HTTPException(status_code=404, detail="Client not found")
         
+        # Check Gemini status and log warnings if degraded
+        gemini_status = {
+            "preprocessor": gemini_preprocessor.model is not None,
+            "validator": gemini_validator.model is not None
+        }
+
+        if not gemini_status["preprocessor"] or not gemini_status["validator"]:
+            logger.warning(
+                f"⚠️  Processing document '{file.filename}' with degraded Gemini services - "
+                f"Preprocessor: {'✓' if gemini_status['preprocessor'] else '✗'}, "
+                f"Validator: {'✓' if gemini_status['validator'] else '✗'}"
+            )
+            if not gemini_status["validator"]:
+                logger.warning("   → Classification validation will return 0% confidence")
+            if not gemini_status["preprocessor"]:
+                logger.warning("   → No preprocessing hints will be provided to Claude")
+        
         # Validate file
         validate_file(file)
         
@@ -536,6 +614,15 @@ async def upload_document(
         )
         
         logger.info(f"Classification validation complete - status: {classification_validation.get('validation_status')}, confidence: {classification_validation.get('confidence_score')}")
+        
+        # Warn if validation returned 0% confidence with error status
+        if classification_validation.get('confidence_score') == 0.0 and classification_validation.get('validation_status') == 'error':
+            logger.warning(
+                f"⚠️  Validation returned 0% confidence with error status for '{doc['filename']}' - "
+                f"This usually indicates Gemini API is not configured or failed"
+            )
+            if classification_validation.get('feedback'):
+                logger.warning(f"   → Validation feedback: {classification_validation.get('feedback')}")
         
         # Store classification validation
         try:
