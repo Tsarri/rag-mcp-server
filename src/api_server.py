@@ -271,14 +271,14 @@ async def delete_client_permanent(client_id: str):
     """
     Permanently delete a client and ALL associated data:
     1. Get all documents for the client
-    2. Delete validations for all deadlines
-    3. Delete validations for all document classifications
-    4. Delete all gemini extractions
-    5. Delete all deadlines
-    6. Delete all documents from database
-    7. Delete all local files for the client
-    8. Delete client record
-    9. Delete client directory
+    2. Get all deadlines for the client
+    3. Delete validations for all deadlines
+    4. Delete validations for all document classifications
+    5. Delete all gemini extractions
+    6. Delete all deadlines
+    7. Delete all documents from database
+    8. Delete all local files and client directory
+    9. Delete client record
     """
     try:
         logger.info(f"Permanently deleting client {client_id} and all associated data")
@@ -387,11 +387,11 @@ async def delete_client_permanent(client_id: str):
         except Exception as e:
             logger.warning(f"Error deleting documents: {e}")
         
-        # 8. Delete all local files for the client
+        # 8. Delete all local files and client directory
         try:
             client_dir = get_client_document_dir(client_id)
             if client_dir.exists():
-                file_count = len(list(client_dir.iterdir()))
+                file_count = sum(1 for _ in client_dir.iterdir())
                 shutil.rmtree(client_dir)
                 deletion_summary["files_deleted"] = file_count
                 logger.info(f"Deleted client directory with {file_count} files: {client_dir}")
