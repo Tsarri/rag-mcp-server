@@ -197,7 +197,7 @@ CREATE TABLE gemini_extractions (
     client_id UUID REFERENCES clients(id),
     document_id TEXT NOT NULL,
     extracted_data JSONB,  -- Contains entities, dates, facts, metadata
-    model_version TEXT DEFAULT 'gemini-1.5-pro',
+    model_version TEXT DEFAULT 'gemini-3-flash',
     extraction_timestamp TIMESTAMPTZ,
     created_at TIMESTAMPTZ
 );

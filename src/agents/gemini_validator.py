@@ -39,8 +39,8 @@ class GeminiValidator:
         # Configure and initialize Gemini
         try:
             genai.configure(api_key=self.api_key)
-            self.model = genai.GenerativeModel('gemini-1.5-pro')
-            logger.info("✓ Gemini Validator ready with model: gemini-1.5-pro")
+            self.model = genai.GenerativeModel('gemini-3-flash')
+            logger.info("✓ Gemini Validator ready with model: gemini-3-flash")
         except Exception as e:
             logger.error(f"Failed to initialize Gemini: {str(e)}", exc_info=True)
             self.model = None

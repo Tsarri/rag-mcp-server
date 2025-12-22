@@ -21,7 +21,7 @@
 ║              STEP 1: GEMINI PREPROCESSING                       ║
 ╠═════════════════════════════════════════════════════════════════╣
 ║  Agent: GeminiPreprocessor                                      ║
-║  Model: gemini-1.5-pro                                          ║
+║  Model: gemini-3-flash                                          ║
 ║                                                                 ║
 ║  Extracts:                                                      ║
 ║  ┌─────────────────────────────────────────────────┐           ║
@@ -109,7 +109,7 @@
 ║              STEP 3: GEMINI VALIDATION                          ║
 ╠═════════════════════════════════════════════════════════════════╣
 ║  Agent: GeminiValidator                                         ║
-║  Model: gemini-1.5-pro                                          ║
+║  Model: gemini-3-flash                                          ║
 ║                                                                 ║
 ║  A) Classification Validation                                   ║
 ║  ┌─────────────────────────────────────────────────┐           ║
