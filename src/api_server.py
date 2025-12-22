@@ -417,6 +417,7 @@ async def upload_document(
         
         return {
             "success": True,
+            "document_id": doc['filename'],  # ADD THIS - frontend needs this for deletion
             "filename": doc['filename'],
             "client_id": client_id,
             "chunks_created": chunk_count,
@@ -518,12 +519,12 @@ async def delete_client_document(client_id: str, document_id: str):
         # 3. Delete validations for all deadlines
         if deadline_ids:
             try:
-                supabase.table('validations') \
-                    .delete() \
-                    .eq('validation_type', 'deadline') \
-                    .in_('entity_id', deadline_ids) \
-                    .eq('client_id', client_id) \
-                    .execute()
+                for deadline_id in deadline_ids:
+                    supabase.table('validations') \
+                        .delete() \
+                        .eq('validation_type', 'deadline') \
+                        .eq('entity_id', deadline_id) \
+                        .execute()
                 logger.info(f"Deleted deadline validations for {len(deadline_ids)} deadlines")
             except Exception as validation_error:
                 logger.warning(f"Error deleting deadline validations: {validation_error}")
@@ -534,26 +535,12 @@ async def delete_client_document(client_id: str, document_id: str):
                 .delete() \
                 .eq('validation_type', 'classification') \
                 .eq('entity_id', document_id) \
-                .eq('client_id', client_id) \
                 .execute()
             logger.info(f"Deleted classification validation for document: {document_id}")
         except Exception as validation_error:
             logger.warning(f"Error deleting classification validation: {validation_error}")
         
-        # 5. Delete associated deadlines (using source_id pattern)
-        # Deadlines are linked via source_id = "document:{document_id}"
-        # where document_id is the same as filename in the current implementation
-        try:
-            supabase.table('deadlines') \
-                .delete() \
-                .eq('source_id', source_id_pattern) \
-                .eq('client_id', client_id) \
-                .execute()
-            logger.info(f"Deleted {len(deadline_ids)} deadlines for document: {document_id}")
-        except Exception as deadline_error:
-            logger.warning(f"Error deleting deadlines: {deadline_error}")
-        
-        # 6. Delete Gemini extractions for the document
+        # 5. Delete Gemini extractions for the document
         try:
             supabase.table('gemini_extractions') \
                 .delete() \
@@ -564,8 +551,19 @@ async def delete_client_document(client_id: str, document_id: str):
         except Exception as extraction_error:
             logger.warning(f"Error deleting Gemini extractions: {extraction_error}")
         
+        # 6. Delete associated deadlines
+        try:
+            supabase.table('deadlines') \
+                .delete() \
+                .eq('source_id', source_id_pattern) \
+                .eq('client_id', client_id) \
+                .execute()
+            logger.info(f"Deleted {len(deadline_ids)} deadlines for document: {document_id}")
+        except Exception as deadline_error:
+            logger.warning(f"Error deleting deadlines: {deadline_error}")
+        
         # 7. Delete from documents table
-        delete_response = supabase.table('documents') \
+        supabase.table('documents') \
             .delete() \
             .eq('document_id', document_id) \
             .eq('client_id', client_id) \
