@@ -247,18 +247,27 @@ Examples:
                         "client_id": client_id
                     }
                     
-                    # Insert into database
-                    self.supabase.table('deadlines').insert(deadline_record).execute()
+                    # Insert into database and capture the response
+                    response = self.supabase.table('deadlines').insert(deadline_record).execute()
                     
-                    # Add to results
+                    # Get the database-generated ID from the response
+                    deadline_id = None
+                    if response.data and len(response.data) > 0:
+                        deadline_id = response.data[0]['id']
+                    
+                    # Add to results with the database ID
                     processed_deadlines.append({
+                        "id": deadline_id,  # ✅ FIX: Include the database ID
                         "date": deadline['date'],
                         "description": deadline['description'],
                         "working_days_remaining": working_days,
                         "risk_level": risk_level
                     })
                     
-                    print(f"  ✓ Deadline {idx + 1}: {deadline['date']} - {deadline['description'][:40]}... [{risk_level.upper()}]")
+                    if deadline_id:
+                        print(f"  ✓ Deadline {idx + 1}: {deadline['date']} (ID: {deadline_id}) - {deadline['description'][:40]}... [{risk_level.upper()}]")
+                    else:
+                        print(f"  ⚠️ Deadline {idx + 1}: {deadline['date']} - {deadline['description'][:40]}... [{risk_level.upper()}] (ID not available)")
                 
                 except ValueError as e:
                     print(f"  ⚠️ Invalid date format '{deadline.get('date', 'N/A')}': {e}")
