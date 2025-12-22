@@ -5,8 +5,12 @@ Validates Claude's outputs as the third step in the validation pipeline
 
 import os
 import json
+import logging
 from typing import Dict, List, Optional
 import google.generativeai as genai
+
+# Setup logging
+logger = logging.getLogger(__name__)
 
 
 class GeminiValidator:
@@ -22,13 +26,13 @@ class GeminiValidator:
         Args:
             gemini_api_key: Gemini API key (defaults to GEMINI_API_KEY environment variable)
         """
-        print("Initializing Gemini Validator...")
+        logger.info("Initializing Gemini Validator...")
         
         # Get API key from parameter or environment
         self.api_key = gemini_api_key or os.getenv('GEMINI_API_KEY')
         
         if not self.api_key:
-            print("⚠️ Warning: GEMINI_API_KEY not provided. Gemini validation will be disabled.")
+            logger.warning("GEMINI_API_KEY not provided. Gemini validation will be disabled.")
             self.model = None
             return
         
@@ -36,9 +40,9 @@ class GeminiValidator:
         try:
             genai.configure(api_key=self.api_key)
             self.model = genai.GenerativeModel('gemini-1.5-pro')
-            print("✓ Gemini Validator ready")
+            logger.info("✓ Gemini Validator ready with model: gemini-1.5-pro")
         except Exception as e:
-            print(f"⚠️ Warning: Failed to initialize Gemini: {str(e)}")
+            logger.error(f"Failed to initialize Gemini: {str(e)}", exc_info=True)
             self.model = None
     
     async def validate_classification(
@@ -66,6 +70,7 @@ class GeminiValidator:
         """
         # If Gemini is not available, return error status
         if not self.model:
+            logger.warning("Gemini model not available, returning error validation")
             return {
                 'validation_status': 'error',
                 'confidence_score': 0.0,
@@ -76,12 +81,13 @@ class GeminiValidator:
             }
         
         try:
-            print(f"  → Gemini validating classification...")
+            logger.info(f"Starting classification validation for doc_type: {claude_output.get('doc_type')}")
             
             # Build context from Gemini extraction if available
             gemini_context = ""
             if gemini_extraction:
                 gemini_context = f"\n\nGemini's preliminary analysis:\n{json.dumps(gemini_extraction, indent=2)}"
+                logger.debug(f"Using Gemini context for validation (length: {len(gemini_context)})")
             
             # Construct validation prompt
             prompt = f"""You are validating another AI's document classification. Compare it against the original text.
@@ -104,11 +110,22 @@ Validate the classification and respond with ONLY valid JSON:
     "missing_information": ["list of potentially missed important items"]
 }}
 
+Important: 
+- confidence_score must be a number between 0.0 and 1.0
+- Provide specific feedback about the classification accuracy
+- Use 'verified' status when classification is accurate
+- Use 'discrepancy' status when there are issues
+
 Respond with ONLY the JSON object."""
 
+            logger.debug(f"Validation prompt constructed (length: {len(prompt)})")
+
             # Call Gemini API
+            logger.info("Calling Gemini API for validation...")
             response = self.model.generate_content(prompt)
             response_text = response.text.strip()
+            
+            logger.info(f"Raw Gemini validation response: {response_text}")
             
             # Parse JSON from response
             if response_text.startswith('```json'):
@@ -119,14 +136,44 @@ Respond with ONLY the JSON object."""
                 response_text = response_text[:-3]
             
             response_text = response_text.strip()
-            validation_result = json.loads(response_text)
+            logger.debug(f"Cleaned response text: {response_text}")
             
-            print(f"  ✓ Validation: {validation_result['validation_status']} ({validation_result['confidence_score']:.0%})")
+            validation_result = json.loads(response_text)
+            logger.info(f"Parsed validation result: {validation_result}")
+            
+            # Validate the structure and fix any issues
+            if 'confidence_score' not in validation_result:
+                logger.error("Gemini response missing 'confidence_score' field!")
+                validation_result['confidence_score'] = 0.0
+            
+            if not isinstance(validation_result.get('confidence_score'), (int, float)):
+                logger.error(f"Invalid confidence_score type: {type(validation_result.get('confidence_score'))}")
+                validation_result['confidence_score'] = 0.0
+            
+            # Ensure confidence is in valid range
+            confidence = float(validation_result.get('confidence_score', 0.0))
+            if confidence < 0.0 or confidence > 1.0:
+                logger.warning(f"Confidence {confidence} out of range [0.0, 1.0], clamping")
+                confidence = max(0.0, min(1.0, confidence))
+                validation_result['confidence_score'] = confidence
+            
+            logger.info(f"✓ Validation complete: {validation_result['validation_status']} (confidence: {validation_result['confidence_score']:.2f})")
             
             return validation_result
             
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse Gemini validation response as JSON: {e}")
+            logger.error(f"Raw response text: {response_text if 'response_text' in locals() else 'No response'}")
+            return {
+                'validation_status': 'error',
+                'confidence_score': 0.0,
+                'feedback': f'JSON parsing failed: {str(e)}',
+                'verified_items': [],
+                'discrepancies': [],
+                'missing_information': []
+            }
         except Exception as e:
-            print(f"  ⚠️ Gemini validation failed: {str(e)}")
+            logger.error(f"Gemini validation failed: {str(e)}", exc_info=True)
             return {
                 'validation_status': 'error',
                 'confidence_score': 0.0,
@@ -161,6 +208,7 @@ Respond with ONLY the JSON object."""
         """
         # If Gemini is not available, return error status
         if not self.model:
+            logger.warning("Gemini model not available, returning error validation for deadlines")
             return {
                 'validation_status': 'error',
                 'confidence_score': 0.0,
@@ -171,12 +219,13 @@ Respond with ONLY the JSON object."""
             }
         
         try:
-            print(f"  → Gemini validating {len(claude_deadlines)} deadlines...")
+            logger.info(f"Starting deadline validation for {len(claude_deadlines)} deadlines")
             
             # Build context from Gemini extraction if available
             gemini_context = ""
             if gemini_extraction and 'dates_and_deadlines' in gemini_extraction:
                 gemini_context = f"\n\nGemini's preliminary deadline analysis:\n{json.dumps(gemini_extraction['dates_and_deadlines'], indent=2)}"
+                logger.debug(f"Using Gemini deadline context (length: {len(gemini_context)})")
             
             # Construct validation prompt
             prompt = f"""You are validating another AI's deadline extraction. Compare it against the original text.
@@ -199,11 +248,22 @@ Validate the deadline extraction and respond with ONLY valid JSON:
     "missing_information": ["list of potentially missed deadlines"]
 }}
 
+Important:
+- confidence_score must be a number between 0.0 and 1.0
+- Provide specific feedback about the deadline accuracy
+- Use 'verified' status when deadlines are accurate
+- Use 'discrepancy' status when there are issues
+
 Respond with ONLY the JSON object."""
 
+            logger.debug(f"Deadline validation prompt constructed (length: {len(prompt)})")
+
             # Call Gemini API
+            logger.info("Calling Gemini API for deadline validation...")
             response = self.model.generate_content(prompt)
             response_text = response.text.strip()
+            
+            logger.info(f"Raw Gemini deadline validation response: {response_text}")
             
             # Parse JSON from response
             if response_text.startswith('```json'):
@@ -214,14 +274,44 @@ Respond with ONLY the JSON object."""
                 response_text = response_text[:-3]
             
             response_text = response_text.strip()
-            validation_result = json.loads(response_text)
+            logger.debug(f"Cleaned deadline response text: {response_text}")
             
-            print(f"  ✓ Validation: {validation_result['validation_status']} ({validation_result['confidence_score']:.0%})")
+            validation_result = json.loads(response_text)
+            logger.info(f"Parsed deadline validation result: {validation_result}")
+            
+            # Validate the structure and fix any issues
+            if 'confidence_score' not in validation_result:
+                logger.error("Gemini deadline response missing 'confidence_score' field!")
+                validation_result['confidence_score'] = 0.0
+            
+            if not isinstance(validation_result.get('confidence_score'), (int, float)):
+                logger.error(f"Invalid deadline confidence_score type: {type(validation_result.get('confidence_score'))}")
+                validation_result['confidence_score'] = 0.0
+            
+            # Ensure confidence is in valid range
+            confidence = float(validation_result.get('confidence_score', 0.0))
+            if confidence < 0.0 or confidence > 1.0:
+                logger.warning(f"Deadline confidence {confidence} out of range [0.0, 1.0], clamping")
+                confidence = max(0.0, min(1.0, confidence))
+                validation_result['confidence_score'] = confidence
+            
+            logger.info(f"✓ Deadline validation complete: {validation_result['validation_status']} (confidence: {validation_result['confidence_score']:.2f})")
             
             return validation_result
             
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse Gemini deadline validation response as JSON: {e}")
+            logger.error(f"Raw response text: {response_text if 'response_text' in locals() else 'No response'}")
+            return {
+                'validation_status': 'error',
+                'confidence_score': 0.0,
+                'feedback': f'JSON parsing failed: {str(e)}',
+                'verified_items': [],
+                'discrepancies': [],
+                'missing_information': []
+            }
         except Exception as e:
-            print(f"  ⚠️ Gemini validation failed: {str(e)}")
+            logger.error(f"Gemini deadline validation failed: {str(e)}", exc_info=True)
             return {
                 'validation_status': 'error',
                 'confidence_score': 0.0,

@@ -84,8 +84,8 @@ def test_deadline_validation_storage():
     
     print("✓ Old extraction_id pattern removed")
     
-    # Check for proper logging
-    if 'logger.info(f"Stored deadline validation for: {deadline_id}")' in content:
+    # Check for proper logging (with or without confidence)
+    if 'logger.info(f"Stored deadline validation for: {deadline_id}' in content:
         print("✓ Proper logging added for deadline validation storage")
     else:
         print("✗ Missing proper logging for deadline validation storage")

@@ -362,23 +362,33 @@ async def upload_document(
             gemini_extraction=gemini_context
         )
         
+        logger.info(f"Classification validation result before storage: {classification_validation}")
+        
         # Store classification validation
         try:
+            # Validate the validation data structure
+            if not isinstance(classification_validation.get('confidence_score'), (int, float)):
+                logger.error(f"Invalid confidence_score before storage: {classification_validation.get('confidence_score')} (type: {type(classification_validation.get('confidence_score'))})")
+                classification_validation['confidence_score'] = 0.0
+            
+            validation_confidence = float(classification_validation.get('confidence_score', 0.0))
+            logger.info(f"Storing classification validation with confidence: {validation_confidence}")
+            
             supabase.table('validations').insert({
                 'validation_type': 'classification',
                 'entity_id': doc['filename'],
                 'client_id': client_id,
                 'extraction_id': extraction_id,
                 'validation_status': classification_validation['validation_status'],
-                'confidence_score': classification_validation['confidence_score'],
+                'confidence_score': validation_confidence,
                 'feedback': classification_validation['feedback'],
                 'verified_items': classification_validation['verified_items'],
                 'discrepancies': classification_validation['discrepancies'],
                 'missing_information': classification_validation['missing_information']
             }).execute()
-            logger.info("Stored classification validation")
+            logger.info("Stored classification validation successfully")
         except Exception as e:
-            logger.error(f"Failed to store classification validation: {str(e)}")
+            logger.error(f"Failed to store classification validation: {str(e)}", exc_info=True)
         
         # Validate deadlines
         deadline_validation = await gemini_validator.validate_deadlines(
@@ -387,11 +397,21 @@ async def upload_document(
             gemini_extraction=gemini_context
         )
         
+        logger.info(f"Deadline validation result before storage: {deadline_validation}")
+        
         # Store individual validation for EACH deadline with its actual ID
         # Note: The validation is performed on all deadlines collectively, but we store
         # the same validation result for each deadline ID. This allows the frontend to
         # query validation by individual deadline ID (e.g., /api/validations/deadline/{deadline_id})
         try:
+            # Validate the validation data structure
+            if not isinstance(deadline_validation.get('confidence_score'), (int, float)):
+                logger.error(f"Invalid deadline confidence_score before storage: {deadline_validation.get('confidence_score')} (type: {type(deadline_validation.get('confidence_score'))})")
+                deadline_validation['confidence_score'] = 0.0
+            
+            validation_confidence = float(deadline_validation.get('confidence_score', 0.0))
+            logger.info(f"Storing deadline validation with confidence: {validation_confidence}")
+            
             for deadline in deadline_result['deadlines']:
                 deadline_id = deadline.get('id')
                 if deadline_id:
@@ -401,17 +421,17 @@ async def upload_document(
                         'client_id': client_id,
                         'extraction_id': extraction_id,
                         'validation_status': deadline_validation['validation_status'],
-                        'confidence_score': deadline_validation['confidence_score'],
+                        'confidence_score': validation_confidence,
                         'feedback': deadline_validation['feedback'],
                         'verified_items': deadline_validation['verified_items'],
                         'discrepancies': deadline_validation['discrepancies'],
                         'missing_information': deadline_validation['missing_information']
                     }).execute()
-                    logger.info(f"Stored deadline validation for: {deadline_id}")
+                    logger.info(f"Stored deadline validation for: {deadline_id} (confidence: {validation_confidence})")
                 else:
                     logger.warning(f"Deadline missing ID, cannot store validation: {deadline}")
         except Exception as e:
-            logger.error(f"Failed to store deadline validations: {str(e)}")
+            logger.error(f"Failed to store deadline validations: {str(e)}", exc_info=True)
         
         logger.info(f"Document processed successfully: {file.filename}")
         
@@ -967,6 +987,50 @@ async def get_validation(validation_type: str, entity_id: str):
         raise
     except Exception as e:
         logger.error(f"Error fetching validation: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/debug/test-validation")
+async def test_validation(test_data: dict):
+    """
+    Debug endpoint to test validation with sample data.
+    
+    Request body:
+    {
+      "document_text": "sample text",
+      "classification": {
+        "doc_type": "contract",
+        "summary": "test summary",
+        "tags": ["test"]
+      }
+    }
+    """
+    try:
+        logger.info("Testing validation endpoint")
+        
+        document_text = test_data.get('document_text', '')
+        classification = test_data.get('classification', {})
+        
+        logger.info(f"Input classification: {classification}")
+        
+        # Test validation
+        validation_result = await gemini_validator.validate_classification(
+            claude_output=classification,
+            original_text=document_text,
+            gemini_extraction=None
+        )
+        
+        logger.info(f"Validation result: {validation_result}")
+        
+        return {
+            "success": True,
+            "input": test_data,
+            "validation_result": validation_result,
+            "confidence_type": type(validation_result.get('confidence_score')).__name__,
+            "confidence_value": validation_result.get('confidence_score')
+        }
+        
+    except Exception as e:
+        logger.error(f"Test validation error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> List[str]:
