@@ -20,9 +20,13 @@ def test_endpoint_exists():
         with open(api_server_path, 'r') as f:
             content = f.read()
         
-        # Check for endpoint definition
-        assert '@app.delete("/api/clients/{client_id}/permanent")' in content
+        # Check for endpoint definition (just the path part)
+        assert '/api/clients/{client_id}/permanent' in content
         print("✓ DELETE permanent endpoint route defined")
+        
+        # Check for response model
+        assert 'response_model=PermanentDeleteResponse' in content
+        print("✓ Response model specified")
         
         # Check for function definition
         assert 'async def delete_client_permanent(client_id: str)' in content
@@ -39,6 +43,11 @@ def test_endpoint_exists():
         # Check for 404 error on client not found
         assert 'HTTPException(status_code=404, detail="Client not found")' in content
         print("✓ 404 error handling for missing client")
+        
+        # Check for response models definition
+        assert 'class PermanentDeleteResponse(BaseModel):' in content
+        assert 'class DeletionSummary(BaseModel):' in content
+        print("✓ Response models defined")
         
         return True
     except AssertionError as e:
@@ -100,8 +109,11 @@ def test_endpoint_logic():
         assert "'deadline'" in func_content or '"deadline"' in func_content
         assert "'classification'" in func_content or '"classification"' in func_content
         assert ".eq('validation_type'" in func_content
-        assert ".eq('entity_id'" in func_content
         print("✓ Validations deletion for both deadline and classification")
+        
+        # Check for bulk deletion using .in_() method (not N+1 queries)
+        assert ".in_('entity_id'" in func_content
+        print("✓ Bulk deletion using .in_() method (performance optimized)")
         
         # Check for gemini_extractions deletion
         assert "table('gemini_extractions')" in func_content

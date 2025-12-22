@@ -129,6 +129,19 @@ class UrgentDeadlinesResponse(BaseModel):
     count: int
     deadlines: List[UrgentDeadline]
 
+class DeletionSummary(BaseModel):
+    documents_deleted: int
+    deadlines_deleted: int
+    validations_deleted: int
+    extractions_deleted: int
+    files_deleted: int
+
+class PermanentDeleteResponse(BaseModel):
+    success: bool
+    message: str
+    client_id: str
+    deletion_summary: DeletionSummary
+
 # File upload validation
 ALLOWED_EXTENSIONS = {'.pdf', '.docx', '.txt', '.eml'}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
@@ -253,7 +266,7 @@ async def delete_client(client_id: str):
         logger.error(f"Error deleting client: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.delete("/api/clients/{client_id}/permanent")
+@app.delete("/api/clients/{client_id}/permanent", response_model=PermanentDeleteResponse)
 async def delete_client_permanent(client_id: str):
     """
     Permanently delete a client and ALL associated data:
@@ -312,31 +325,33 @@ async def delete_client_permanent(client_id: str):
             logger.warning(f"Error fetching deadlines: {e}")
             deadline_ids = []
         
-        # 3. Delete all validations for deadlines
+        # 3. Delete all validations for deadlines (bulk deletion)
         if deadline_ids:
             try:
-                for deadline_id in deadline_ids:
-                    supabase.table('validations') \
-                        .delete() \
-                        .eq('validation_type', 'deadline') \
-                        .eq('entity_id', deadline_id) \
-                        .execute()
-                logger.info(f"Deleted validations for {len(deadline_ids)} deadlines")
-                deletion_summary["validations_deleted"] += len(deadline_ids)
+                # Use bulk deletion by matching any deadline_id in the list
+                validations_response = supabase.table('validations') \
+                    .delete() \
+                    .eq('validation_type', 'deadline') \
+                    .in_('entity_id', deadline_ids) \
+                    .execute()
+                validations_count = len(validations_response.data) if validations_response.data else 0
+                logger.info(f"Deleted {validations_count} validations for {len(deadline_ids)} deadlines")
+                deletion_summary["validations_deleted"] += validations_count
             except Exception as e:
                 logger.warning(f"Error deleting deadline validations: {e}")
         
-        # 4. Delete all validations for document classifications
+        # 4. Delete all validations for document classifications (bulk deletion)
         if document_ids:
             try:
-                for document_id in document_ids:
-                    supabase.table('validations') \
-                        .delete() \
-                        .eq('validation_type', 'classification') \
-                        .eq('entity_id', document_id) \
-                        .execute()
-                logger.info(f"Deleted validations for {len(document_ids)} documents")
-                deletion_summary["validations_deleted"] += len(document_ids)
+                # Use bulk deletion by matching any document_id in the list
+                validations_response = supabase.table('validations') \
+                    .delete() \
+                    .eq('validation_type', 'classification') \
+                    .in_('entity_id', document_ids) \
+                    .execute()
+                validations_count = len(validations_response.data) if validations_response.data else 0
+                logger.info(f"Deleted {validations_count} validations for {len(document_ids)} documents")
+                deletion_summary["validations_deleted"] += validations_count
             except Exception as e:
                 logger.warning(f"Error deleting classification validations: {e}")
         
