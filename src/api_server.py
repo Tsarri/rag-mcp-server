@@ -417,7 +417,7 @@ async def upload_document(
         
         return {
             "success": True,
-            "document_id": doc['filename'],  # ADD THIS - frontend needs this for deletion
+            "document_id": doc['filename'],  # Frontend requires document_id for deletion operations
             "filename": doc['filename'],
             "client_id": client_id,
             "chunks_created": chunk_count,
@@ -535,6 +535,7 @@ async def delete_client_document(client_id: str, document_id: str):
                 .delete() \
                 .eq('validation_type', 'classification') \
                 .eq('entity_id', document_id) \
+                .eq('client_id', client_id) \
                 .execute()
             logger.info(f"Deleted classification validation for document: {document_id}")
         except Exception as validation_error:
