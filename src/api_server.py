@@ -362,7 +362,7 @@ async def upload_document(
             gemini_extraction=gemini_context
         )
         
-        logger.info(f"Classification validation result before storage: {classification_validation}")
+        logger.info(f"Classification validation complete - status: {classification_validation.get('validation_status')}, confidence: {classification_validation.get('confidence_score')}")
         
         # Store classification validation
         try:
@@ -397,7 +397,7 @@ async def upload_document(
             gemini_extraction=gemini_context
         )
         
-        logger.info(f"Deadline validation result before storage: {deadline_validation}")
+        logger.info(f"Deadline validation complete - status: {deadline_validation.get('validation_status')}, confidence: {deadline_validation.get('confidence_score')}")
         
         # Store individual validation for EACH deadline with its actual ID
         # Note: The validation is performed on all deadlines collectively, but we store
@@ -1010,7 +1010,17 @@ async def test_validation(test_data: dict):
         document_text = test_data.get('document_text', '')
         classification = test_data.get('classification', {})
         
-        logger.info(f"Input classification: {classification}")
+        # Input validation
+        if not isinstance(document_text, str):
+            raise HTTPException(status_code=400, detail="document_text must be a string")
+        
+        if len(document_text) > 50000:  # Limit to 50KB of text
+            raise HTTPException(status_code=400, detail="document_text exceeds maximum size of 50KB")
+        
+        if not isinstance(classification, dict):
+            raise HTTPException(status_code=400, detail="classification must be an object")
+        
+        logger.info(f"Input classification doc_type: {classification.get('doc_type')}")
         
         # Test validation
         validation_result = await gemini_validator.validate_classification(
@@ -1019,16 +1029,21 @@ async def test_validation(test_data: dict):
             gemini_extraction=None
         )
         
-        logger.info(f"Validation result: {validation_result}")
+        logger.info(f"Validation complete - status: {validation_result.get('validation_status')}, confidence: {validation_result.get('confidence_score')}")
         
         return {
             "success": True,
-            "input": test_data,
-            "validation_result": validation_result,
+            "validation_result": {
+                "validation_status": validation_result.get('validation_status'),
+                "confidence_score": validation_result.get('confidence_score'),
+                "feedback": validation_result.get('feedback')
+            },
             "confidence_type": type(validation_result.get('confidence_score')).__name__,
             "confidence_value": validation_result.get('confidence_score')
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Test validation error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

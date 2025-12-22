@@ -121,11 +121,12 @@ Respond with ONLY the JSON object."""
             logger.debug(f"Validation prompt constructed (length: {len(prompt)})")
 
             # Call Gemini API
-            logger.info("Calling Gemini API for validation...")
+            logger.info(f"Calling Gemini API for validation...")
             response = self.model.generate_content(prompt)
             response_text = response.text.strip()
             
-            logger.info(f"Raw Gemini validation response: {response_text}")
+            # Log response at DEBUG level to avoid exposing sensitive content in production
+            logger.debug(f"Raw Gemini validation response: {response_text}")
             
             # Parse JSON from response
             if response_text.startswith('```json'):
@@ -139,7 +140,7 @@ Respond with ONLY the JSON object."""
             logger.debug(f"Cleaned response text: {response_text}")
             
             validation_result = json.loads(response_text)
-            logger.info(f"Parsed validation result: {validation_result}")
+            logger.debug(f"Parsed validation result: {validation_result}")
             
             # Validate the structure and fix any issues
             if 'confidence_score' not in validation_result:
@@ -263,7 +264,8 @@ Respond with ONLY the JSON object."""
             response = self.model.generate_content(prompt)
             response_text = response.text.strip()
             
-            logger.info(f"Raw Gemini deadline validation response: {response_text}")
+            # Log response at DEBUG level to avoid exposing sensitive content in production
+            logger.debug(f"Raw Gemini deadline validation response: {response_text}")
             
             # Parse JSON from response
             if response_text.startswith('```json'):
@@ -277,7 +279,7 @@ Respond with ONLY the JSON object."""
             logger.debug(f"Cleaned deadline response text: {response_text}")
             
             validation_result = json.loads(response_text)
-            logger.info(f"Parsed deadline validation result: {validation_result}")
+            logger.debug(f"Parsed deadline validation result: {validation_result}")
             
             # Validate the structure and fix any issues
             if 'confidence_score' not in validation_result:
