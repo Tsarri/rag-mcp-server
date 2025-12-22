@@ -241,7 +241,7 @@ async def update_client(client_id: str, client_update: ClientUpdate):
 
 @app.delete("/api/clients/{client_id}", response_model=ClientResponse)
 async def delete_client(client_id: str):
-    """Soft delete a client"""
+    """Soft delete a client (sets active=false)"""
     try:
         logger.info(f"Deleting client: {client_id}")
         result = await client_manager.delete_client(client_id)
@@ -252,6 +252,164 @@ async def delete_client(client_id: str):
     except Exception as e:
         logger.error(f"Error deleting client: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/clients/{client_id}/permanent")
+async def delete_client_permanent(client_id: str):
+    """
+    Permanently delete a client and ALL associated data:
+    1. Get all documents for the client
+    2. Delete validations for all deadlines
+    3. Delete validations for all document classifications
+    4. Delete all gemini extractions
+    5. Delete all deadlines
+    6. Delete all documents from database
+    7. Delete all local files for the client
+    8. Delete client record
+    9. Delete client directory
+    """
+    try:
+        logger.info(f"Permanently deleting client {client_id} and all associated data")
+        
+        # Verify client exists
+        client = await client_manager.get_client(client_id)
+        if not client:
+            raise HTTPException(status_code=404, detail="Client not found")
+        
+        # Track deletion counts for response
+        deletion_summary = {
+            "documents_deleted": 0,
+            "deadlines_deleted": 0,
+            "validations_deleted": 0,
+            "extractions_deleted": 0,
+            "files_deleted": 0
+        }
+        
+        # 1. Get all documents for this client
+        try:
+            docs_response = supabase.table('documents') \
+                .select('document_id') \
+                .eq('client_id', client_id) \
+                .execute()
+            
+            document_ids = [doc['document_id'] for doc in docs_response.data] if docs_response.data else []
+            deletion_summary["documents_deleted"] = len(document_ids)
+            logger.info(f"Found {len(document_ids)} documents to delete")
+        except Exception as e:
+            logger.warning(f"Error fetching documents: {e}")
+            document_ids = []
+        
+        # 2. Get all deadlines for this client (for validation cleanup)
+        try:
+            deadlines_response = supabase.table('deadlines') \
+                .select('id') \
+                .eq('client_id', client_id) \
+                .execute()
+            
+            deadline_ids = [d['id'] for d in deadlines_response.data] if deadlines_response.data else []
+            deletion_summary["deadlines_deleted"] = len(deadline_ids)
+            logger.info(f"Found {len(deadline_ids)} deadlines to delete")
+        except Exception as e:
+            logger.warning(f"Error fetching deadlines: {e}")
+            deadline_ids = []
+        
+        # 3. Delete all validations for deadlines
+        if deadline_ids:
+            try:
+                for deadline_id in deadline_ids:
+                    supabase.table('validations') \
+                        .delete() \
+                        .eq('validation_type', 'deadline') \
+                        .eq('entity_id', deadline_id) \
+                        .execute()
+                logger.info(f"Deleted validations for {len(deadline_ids)} deadlines")
+                deletion_summary["validations_deleted"] += len(deadline_ids)
+            except Exception as e:
+                logger.warning(f"Error deleting deadline validations: {e}")
+        
+        # 4. Delete all validations for document classifications
+        if document_ids:
+            try:
+                for document_id in document_ids:
+                    supabase.table('validations') \
+                        .delete() \
+                        .eq('validation_type', 'classification') \
+                        .eq('entity_id', document_id) \
+                        .execute()
+                logger.info(f"Deleted validations for {len(document_ids)} documents")
+                deletion_summary["validations_deleted"] += len(document_ids)
+            except Exception as e:
+                logger.warning(f"Error deleting classification validations: {e}")
+        
+        # 5. Delete all gemini extractions
+        try:
+            extractions_response = supabase.table('gemini_extractions') \
+                .delete() \
+                .eq('client_id', client_id) \
+                .execute()
+            extraction_count = len(extractions_response.data) if extractions_response.data else 0
+            deletion_summary["extractions_deleted"] = extraction_count
+            logger.info(f"Deleted {extraction_count} gemini extractions")
+        except Exception as e:
+            logger.warning(f"Error deleting gemini extractions: {e}")
+        
+        # 6. Delete all deadlines
+        try:
+            supabase.table('deadlines') \
+                .delete() \
+                .eq('client_id', client_id) \
+                .execute()
+            logger.info(f"Deleted {len(deadline_ids)} deadlines")
+        except Exception as e:
+            logger.warning(f"Error deleting deadlines: {e}")
+        
+        # 7. Delete all documents from database
+        try:
+            supabase.table('documents') \
+                .delete() \
+                .eq('client_id', client_id) \
+                .execute()
+            logger.info(f"Deleted {len(document_ids)} document records")
+        except Exception as e:
+            logger.warning(f"Error deleting documents: {e}")
+        
+        # 8. Delete all local files for the client
+        try:
+            client_dir = get_client_document_dir(client_id)
+            if client_dir.exists():
+                file_count = len(list(client_dir.iterdir()))
+                shutil.rmtree(client_dir)
+                deletion_summary["files_deleted"] = file_count
+                logger.info(f"Deleted client directory with {file_count} files: {client_dir}")
+            else:
+                logger.info(f"No local directory found for client: {client_id}")
+        except Exception as e:
+            logger.warning(f"Error deleting client directory: {e}")
+        
+        # 9. Delete client record
+        try:
+            supabase.table('clients') \
+                .delete() \
+                .eq('id', client_id) \
+                .execute()
+            logger.info(f"Deleted client record: {client_id}")
+        except Exception as e:
+            logger.error(f"Error deleting client record: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to delete client: {str(e)}")
+        
+        logger.info(f"Successfully deleted client {client_id} and all associated data")
+        
+        return {
+            "success": True,
+            "message": "Client and all associated data permanently deleted",
+            "client_id": client_id,
+            "deletion_summary": deletion_summary
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error permanently deleting client: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete client: {str(e)}")
 
 # Document Upload Endpoint
 
