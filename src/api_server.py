@@ -473,8 +473,10 @@ async def get_client_documents(
 async def delete_client_document(client_id: str, document_id: str):
     """
     Delete a document completely:
-    - Remove from documents table
+    - Remove validations (for deadlines and classification)
     - Remove associated deadlines (linked via source_id pattern)
+    - Remove Gemini extractions
+    - Remove from documents table
     - Delete actual file from local storage
     """
     try:
@@ -498,21 +500,71 @@ async def delete_client_document(client_id: str, document_id: str):
         document = doc_response.data[0]
         filename = document.get('filename')
         
-        # 2. Delete associated deadlines (using source_id pattern)
+        # 2. Get deadline IDs before deleting them (for validation cleanup)
+        deadline_ids = []
+        source_id_pattern = f"document:{document_id}"
+        try:
+            deadline_response = supabase.table('deadlines') \
+                .select('id') \
+                .eq('source_id', source_id_pattern) \
+                .eq('client_id', client_id) \
+                .execute()
+            
+            deadline_ids = [d['id'] for d in deadline_response.data] if deadline_response.data else []
+            logger.info(f"Found {len(deadline_ids)} deadlines to clean up")
+        except Exception as e:
+            logger.warning(f"Could not fetch deadline IDs: {e}")
+        
+        # 3. Delete validations for all deadlines
+        if deadline_ids:
+            try:
+                supabase.table('validations') \
+                    .delete() \
+                    .eq('validation_type', 'deadline') \
+                    .in_('entity_id', deadline_ids) \
+                    .eq('client_id', client_id) \
+                    .execute()
+                logger.info(f"Deleted deadline validations for {len(deadline_ids)} deadlines")
+            except Exception as validation_error:
+                logger.warning(f"Error deleting deadline validations: {validation_error}")
+        
+        # 4. Delete classification validation for the document
+        try:
+            supabase.table('validations') \
+                .delete() \
+                .eq('validation_type', 'classification') \
+                .eq('entity_id', document_id) \
+                .eq('client_id', client_id) \
+                .execute()
+            logger.info(f"Deleted classification validation for document: {document_id}")
+        except Exception as validation_error:
+            logger.warning(f"Error deleting classification validation: {validation_error}")
+        
+        # 5. Delete associated deadlines (using source_id pattern)
         # Deadlines are linked via source_id = "document:{document_id}"
         # where document_id is the same as filename in the current implementation
-        source_id_pattern = f"document:{document_id}"
         try:
             supabase.table('deadlines') \
                 .delete() \
                 .eq('source_id', source_id_pattern) \
                 .eq('client_id', client_id) \
                 .execute()
-            logger.info(f"Deleted deadlines for document: {document_id}")
+            logger.info(f"Deleted {len(deadline_ids)} deadlines for document: {document_id}")
         except Exception as deadline_error:
             logger.warning(f"Error deleting deadlines: {deadline_error}")
         
-        # 3. Delete from documents table
+        # 6. Delete Gemini extractions for the document
+        try:
+            supabase.table('gemini_extractions') \
+                .delete() \
+                .eq('document_id', document_id) \
+                .eq('client_id', client_id) \
+                .execute()
+            logger.info(f"Deleted Gemini extractions for document: {document_id}")
+        except Exception as extraction_error:
+            logger.warning(f"Error deleting Gemini extractions: {extraction_error}")
+        
+        # 7. Delete from documents table
         delete_response = supabase.table('documents') \
             .delete() \
             .eq('document_id', document_id) \
@@ -521,7 +573,7 @@ async def delete_client_document(client_id: str, document_id: str):
         
         logger.info(f"Deleted document record from database: {document_id}")
         
-        # 4. Delete actual file from local storage
+        # 8. Delete actual file from local storage
         if filename:
             try:
                 client_dir = get_client_document_dir(client_id)
@@ -538,8 +590,10 @@ async def delete_client_document(client_id: str, document_id: str):
         
         return {
             "success": True,
-            "message": "Document deleted successfully",
-            "document_id": document_id
+            "message": "Document and all related data deleted successfully",
+            "document_id": document_id,
+            "deadlines_deleted": len(deadline_ids),
+            "validations_deleted": len(deadline_ids) + 1  # deadline validations + classification
         }
         
     except HTTPException:

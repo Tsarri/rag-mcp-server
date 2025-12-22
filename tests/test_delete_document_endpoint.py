@@ -39,6 +39,12 @@ def test_endpoint_exists():
         assert 'supabase.table(\'deadlines\')' in content
         print("✓ Deadlines table delete present")
         
+        assert 'supabase.table(\'validations\')' in content
+        print("✓ Validations table delete present")
+        
+        assert 'supabase.table(\'gemini_extractions\')' in content
+        print("✓ Gemini extractions table delete present")
+        
         assert 'file_path.unlink()' in content or 'unlink()' in content
         print("✓ File deletion logic present")
         
@@ -120,6 +126,27 @@ def test_endpoint_logic():
         assert deadlines_delete > 0
         assert documents_delete_query > deadlines_delete
         print("✓ Deadlines are queried/deleted before final document deletion")
+        
+        # Check for validations table deletion (NEW - for Gemini integration)
+        assert "table('validations')" in func_content
+        print("✓ Validations table deletion included")
+        
+        # Check for gemini_extractions table deletion (NEW - for Gemini integration)
+        assert "table('gemini_extractions')" in func_content
+        print("✓ Gemini extractions table deletion included")
+        
+        # Check for deadline validation deletion
+        assert "'deadline'" in func_content or '"deadline"' in func_content
+        print("✓ Deadline validation type check included")
+        
+        # Check for classification validation deletion
+        assert "'classification'" in func_content or '"classification"' in func_content
+        print("✓ Classification validation type check included")
+        
+        # Check return value includes deletion counts
+        assert '"deadlines_deleted"' in func_content
+        assert '"validations_deleted"' in func_content
+        print("✓ Return value includes deletion counts")
         
         return True
     except AssertionError as e:
