@@ -573,7 +573,7 @@ async def upload_document(
                     'client_id': client_id,
                     'document_id': doc['filename'],
                     'extracted_data': gemini_extraction['data'],
-                    'model_version': 'gemini-3-flash'
+                    'model_version': 'gemini-3-flash-preview'
                 }).execute()
                 
                 extraction_id = extraction_record.data[0]['id'] if extraction_record.data else None
