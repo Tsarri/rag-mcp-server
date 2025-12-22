@@ -518,13 +518,12 @@ async def delete_client_document(client_id: str, document_id: str):
         # 3. Delete validations for all deadlines
         if deadline_ids:
             try:
-                for deadline_id in deadline_ids:
-                    supabase.table('validations') \
-                        .delete() \
-                        .eq('validation_type', 'deadline') \
-                        .eq('entity_id', deadline_id) \
-                        .eq('client_id', client_id) \
-                        .execute()
+                supabase.table('validations') \
+                    .delete() \
+                    .eq('validation_type', 'deadline') \
+                    .in_('entity_id', deadline_ids) \
+                    .eq('client_id', client_id) \
+                    .execute()
                 logger.info(f"Deleted deadline validations for {len(deadline_ids)} deadlines")
             except Exception as validation_error:
                 logger.warning(f"Error deleting deadline validations: {validation_error}")
