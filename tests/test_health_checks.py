@@ -26,7 +26,11 @@ def test_health_endpoint_structure():
             'api_server', 
             os.path.join(os.path.dirname(__file__), '..', 'src', 'api_server.py')
         )
-        print("✓ api_server.py can be loaded")
+        if spec is not None:
+            print("✓ api_server.py can be loaded")
+        else:
+            print("✗ api_server.py cannot be loaded")
+            return False
         
         # Read the file to check for endpoint definitions
         with open(os.path.join(os.path.dirname(__file__), '..', 'src', 'api_server.py'), 'r') as f:
