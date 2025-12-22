@@ -35,7 +35,7 @@ class GeminiPreprocessor:
         # Configure and initialize Gemini
         try:
             genai.configure(api_key=self.api_key)
-            self.model = genai.GenerativeModel('gemini-3-flash')
+            self.model = genai.GenerativeModel('gemini-3-flash-preview')
             print("✓ Gemini Preprocessor ready")
         except Exception as e:
             print(f"⚠️ Warning: Failed to initialize Gemini: {str(e)}")
