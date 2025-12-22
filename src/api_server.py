@@ -989,8 +989,12 @@ async def get_validation(validation_type: str, entity_id: str):
         logger.error(f"Error fetching validation: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+class ValidationTestRequest(BaseModel):
+    document_text: str
+    classification: dict
+
 @app.post("/api/debug/test-validation")
-async def test_validation(test_data: dict):
+async def test_validation(test_data: ValidationTestRequest):
     """
     Debug endpoint to test validation with sample data.
     
@@ -1007,8 +1011,8 @@ async def test_validation(test_data: dict):
     try:
         logger.info("Testing validation endpoint")
         
-        document_text = test_data.get('document_text', '')
-        classification = test_data.get('classification', {})
+        document_text = test_data.document_text
+        classification = test_data.classification
         
         # Input validation
         if not isinstance(document_text, str):
@@ -1037,9 +1041,7 @@ async def test_validation(test_data: dict):
                 "validation_status": validation_result.get('validation_status'),
                 "confidence_score": validation_result.get('confidence_score'),
                 "feedback": validation_result.get('feedback')
-            },
-            "confidence_type": type(validation_result.get('confidence_score')).__name__,
-            "confidence_value": validation_result.get('confidence_score')
+            }
         }
         
     except HTTPException:
