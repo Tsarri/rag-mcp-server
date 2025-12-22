@@ -83,6 +83,9 @@ class GeminiValidator:
         try:
             logger.info(f"Starting classification validation for doc_type: {claude_output.get('doc_type')}")
             
+            # Initialize response_text for error handling
+            response_text = ""
+            
             # Build context from Gemini extraction if available
             gemini_context = ""
             if gemini_extraction:
@@ -164,7 +167,7 @@ Respond with ONLY the JSON object."""
             
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse Gemini validation response as JSON: {e}")
-            logger.error(f"Raw response text: {response_text if 'response_text' in locals() else 'No response'}")
+            logger.error(f"Raw response text: {response_text if response_text else 'No response captured'}")
             return {
                 'validation_status': 'error',
                 'confidence_score': 0.0,
@@ -221,6 +224,9 @@ Respond with ONLY the JSON object."""
         
         try:
             logger.info(f"Starting deadline validation for {len(claude_deadlines)} deadlines")
+            
+            # Initialize response_text for error handling
+            response_text = ""
             
             # Build context from Gemini extraction if available
             gemini_context = ""
@@ -303,7 +309,7 @@ Respond with ONLY the JSON object."""
             
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse Gemini deadline validation response as JSON: {e}")
-            logger.error(f"Raw response text: {response_text if 'response_text' in locals() else 'No response'}")
+            logger.error(f"Raw response text: {response_text if response_text else 'No response captured'}")
             return {
                 'validation_status': 'error',
                 'confidence_score': 0.0,

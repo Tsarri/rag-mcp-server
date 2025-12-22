@@ -1014,8 +1014,8 @@ async def test_validation(test_data: dict):
         if not isinstance(document_text, str):
             raise HTTPException(status_code=400, detail="document_text must be a string")
         
-        if len(document_text) > 50000:  # Limit to 50KB of text
-            raise HTTPException(status_code=400, detail="document_text exceeds maximum size of 50KB")
+        if len(document_text) > 50000:  # Limit to 50,000 characters (approximately 50KB)
+            raise HTTPException(status_code=400, detail="document_text exceeds maximum size of 50,000 characters")
         
         if not isinstance(classification, dict):
             raise HTTPException(status_code=400, detail="classification must be an object")
