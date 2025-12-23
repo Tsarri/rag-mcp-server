@@ -61,7 +61,7 @@ class GeminiValidator:
             
         Returns:
             Dict with:
-                - validation_status: 'verified', 'discrepancy', or 'error'
+                - validation_status: 'validated', 'warning', or 'error'
                 - confidence_score: 0.0 to 1.0
                 - feedback: Human-readable feedback
                 - verified_items: List of verified items
@@ -105,7 +105,7 @@ CLAUDE'S CLASSIFICATION:
 Validate the classification and respond with ONLY valid JSON:
 
 {{
-    "validation_status": "verified|discrepancy|error",
+    "validation_status": "validated|warning|error",
     "confidence_score": 0.95,
     "feedback": "Brief explanation of validation result",
     "verified_items": ["list of correct classifications"],
@@ -116,8 +116,8 @@ Validate the classification and respond with ONLY valid JSON:
 Important: 
 - confidence_score must be a number between 0.0 and 1.0
 - Provide specific feedback about the classification accuracy
-- Use 'verified' status when classification is accurate
-- Use 'discrepancy' status when there are issues
+- Use 'validated' status when classification is accurate
+- Use 'warning' status when there are issues
 
 Respond with ONLY the JSON object."""
 
@@ -203,7 +203,7 @@ Respond with ONLY the JSON object."""
             
         Returns:
             Dict with:
-                - validation_status: 'verified', 'discrepancy', or 'error'
+                - validation_status: 'validated', 'warning', or 'error'
                 - confidence_score: 0.0 to 1.0
                 - feedback: Human-readable feedback
                 - verified_items: List of verified deadlines
@@ -247,7 +247,7 @@ CLAUDE'S EXTRACTED DEADLINES:
 Validate the deadline extraction and respond with ONLY valid JSON:
 
 {{
-    "validation_status": "verified|discrepancy|error",
+    "validation_status": "validated|warning|error",
     "confidence_score": 0.95,
     "feedback": "Brief explanation of validation result",
     "verified_items": ["list of correctly identified deadlines"],
@@ -258,8 +258,8 @@ Validate the deadline extraction and respond with ONLY valid JSON:
 Important:
 - confidence_score must be a number between 0.0 and 1.0
 - Provide specific feedback about the deadline accuracy
-- Use 'verified' status when deadlines are accurate
-- Use 'discrepancy' status when there are issues
+- Use 'validated' status when deadlines are accurate
+- Use 'warning' status when there are issues
 
 Respond with ONLY the JSON object."""
 
