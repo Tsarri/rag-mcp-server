@@ -466,8 +466,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     # Add validation results
                     if classification_validation:
                         status_emoji = {
-                            'verified': '✅',
-                            'discrepancy': '⚠️',
+                            'validated': '✅',
+                            'warning': '⚠️',
                             'error': '❌'
                         }.get(classification_validation['validation_status'], '❓')
                         
@@ -518,8 +518,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                         # Add deadline validation results
                         if deadline_validation:
                             status_emoji = {
-                                'verified': '✅',
-                                'discrepancy': '⚠️',
+                                'validated': '✅',
+                                'warning': '⚠️',
                                 'error': '❌'
                             }.get(deadline_validation['validation_status'], '❓')
                             
