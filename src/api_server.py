@@ -47,10 +47,9 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:8080",
-        "https://*. ngrok.io",
-        "https://lovable.dev",
-        "https://*. lovable.dev",
-        "*"
+        "http://localhost:8081",
+        "https://*.ngrok-free.app",
+        "https://*.ngrok.io",
     ],
     allow_credentials=True,
     allow_methods=["*"],
