@@ -43,14 +43,17 @@ app = FastAPI(
 )
 
 # CORS Configuration
+_cors_origins_env = os.environ.get("CORS_ORIGINS", "")
+_cors_origins = [o.strip() for o in _cors_origins_env.split(",") if o.strip()] if _cors_origins_env else [
+    "http://localhost:8080",
+    "http://localhost:8081",
+    "https://*.ngrok-free.app",
+    "https://*.ngrok.io",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:8080",
-        "http://localhost:8081",
-        "https://*.ngrok-free.app",
-        "https://*.ngrok.io",
-    ],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -187,7 +190,7 @@ def validate_file(file: UploadFile) -> None:
 
 def get_client_document_dir(client_id: str) -> Path:
     """Get or create document directory for a client"""
-    base_dir = Path("./data/documents")
+    base_dir = Path(os.environ.get("UPLOAD_DIR", "./data/documents"))
     client_dir = base_dir / f"client_{client_id}"
     client_dir.mkdir(parents=True, exist_ok=True)
     return client_dir
@@ -1349,6 +1352,6 @@ if __name__ == "__main__":
     uvicorn.run(
         app,
         host="0.0.0.0",
-        port=8000,
+        port=int(os.environ.get("PORT", 8000)),
         log_level="info"
     )
