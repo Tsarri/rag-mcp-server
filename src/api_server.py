@@ -5,6 +5,7 @@ Provides REST endpoints for frontend integration
 
 import os
 import logging
+import tempfile
 from pathlib import Path
 from typing import Optional, List
 from datetime import datetime, timezone
@@ -188,12 +189,35 @@ def validate_file(file: UploadFile) -> None:
             detail=f"File size exceeds maximum allowed size of {MAX_FILE_SIZE / 1024 / 1024}MB"
         )
 
-def get_client_document_dir(client_id: str) -> Path:
-    """Get or create document directory for a client"""
-    base_dir = Path(os.environ.get("UPLOAD_DIR", "./data/documents"))
-    client_dir = base_dir / f"client_{client_id}"
-    client_dir.mkdir(parents=True, exist_ok=True)
-    return client_dir
+STORAGE_BUCKET = "documents"
+
+def upload_file_to_storage(client_id: str, filename: str, file_bytes: bytes) -> str:
+    """Upload file to Supabase Storage and return the storage path"""
+    storage_path = f"client_{client_id}/{filename}"
+    supabase.storage.from_(STORAGE_BUCKET).upload(
+        storage_path,
+        file_bytes,
+        {"upsert": "true"}
+    )
+    return storage_path
+
+def download_file_from_storage(storage_path: str) -> bytes:
+    """Download file bytes from Supabase Storage"""
+    return supabase.storage.from_(STORAGE_BUCKET).download(storage_path)
+
+def delete_client_storage_folder(client_id: str) -> int:
+    """Delete all files in a client's storage folder, returns count of deleted files"""
+    prefix = f"client_{client_id}/"
+    try:
+        files = supabase.storage.from_(STORAGE_BUCKET).list(f"client_{client_id}")
+        if not files:
+            return 0
+        paths = [f"{prefix}{f['name']}" for f in files]
+        supabase.storage.from_(STORAGE_BUCKET).remove(paths)
+        return len(paths)
+    except Exception as e:
+        logger.warning(f"Error deleting storage folder for client {client_id}: {e}")
+        return 0
 
 # API Endpoints
 
@@ -450,18 +474,13 @@ async def delete_client_permanent(client_id: str):
         except Exception as e:
             logger.warning(f"Error deleting documents: {e}")
         
-        # 8. Delete all local files and client directory
+        # 8. Delete all files from Supabase Storage
         try:
-            client_dir = get_client_document_dir(client_id)
-            if client_dir.exists():
-                file_count = sum(1 for _ in client_dir.iterdir())
-                shutil.rmtree(client_dir)
-                deletion_summary["files_deleted"] = file_count
-                logger.info(f"Deleted client directory with {file_count} files: {client_dir}")
-            else:
-                logger.info(f"No local directory found for client: {client_id}")
+            file_count = delete_client_storage_folder(client_id)
+            deletion_summary["files_deleted"] = file_count
+            logger.info(f"Deleted {file_count} files from Supabase Storage for client: {client_id}")
         except Exception as e:
-            logger.warning(f"Error deleting client directory: {e}")
+            logger.warning(f"Error deleting client storage files: {e}")
         
         # 9. Delete client record
         try:
@@ -527,19 +546,26 @@ async def upload_document(
         
         # Validate file
         validate_file(file)
-        
-        # Get client document directory
-        client_dir = get_client_document_dir(client_id)
-        
-        # Save file
-        file_path = client_dir / file.filename
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-        
-        logger.info(f"File saved: {file_path}")
-        
-        # Load document
-        doc = await document_loader.load_document(str(file_path))
+
+        # Read file bytes
+        file_bytes = await file.read()
+
+        # Upload to Supabase Storage
+        storage_path = upload_file_to_storage(client_id, file.filename, file_bytes)
+        logger.info(f"File uploaded to Supabase Storage: {storage_path}")
+
+        # Write to a temp file for processing, then clean up
+        suffix = Path(file.filename).suffix
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(file_bytes)
+            tmp_path = tmp.name
+
+        try:
+            # Load document from temp file
+            doc = await document_loader.load_document(tmp_path)
+            doc['filename'] = file.filename  # preserve original filename
+        finally:
+            os.unlink(tmp_path)
         
         # Create chunks for vector store
         chunks = chunk_text(doc['text'])
